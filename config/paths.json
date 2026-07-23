@@ -1,0 +1,28 @@
+{
+  "input": {
+    "raw": "input/raw",
+    "processed": "input/processed",
+    "archive": "input/archive"
+  },
+  "output": {
+    "reels": "output/reels",
+    "youtube": "output/youtube",
+    "shorts": "output/shorts",
+    "drafts": "output/drafts"
+  },
+  "assets": {
+    "intros": "assets/intros",
+    "outros": "assets/outros",
+    "logos": "assets/logos",
+    "music": "assets/music",
+    "sfx": "assets/sfx",
+    "fonts": "assets/fonts"
+  },
+  "captions": {
+    "srt": "captions/srt",
+    "json": "captions/json",
+    "styled": "captions/styled"
+  },
+  "temp": "temp",
+  "logs": "logs"
+}

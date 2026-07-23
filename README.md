@@ -3,9 +3,10 @@
 A reusable, general-purpose workspace for AI-assisted video editing — built to be
 used across every future video project, not a one-off pipeline.
 
-This repository only defines the project *structure* for now. No dependencies are
-installed and no editing scripts exist yet — those come in the next step (FFmpeg,
-Whisper, MoviePy, Remotion, etc.).
+The workspace is fully configured: FFmpeg, Python (MoviePy, Whisper, faster-whisper)
+and Node/Remotion are installed and verified working end-to-end. See
+[Setup](#setup) to get a fresh clone running, and [Environment](#environment) for
+how the pieces fit together.
 
 ## Folder structure
 
@@ -78,14 +79,92 @@ Log output from scripts and pipeline runs, useful for debugging and auditing pas
 ### `temp/`
 Scratch space for intermediate/temporary files generated during processing. Safe to clear.
 
+## Environment
+
+| Tool | Purpose | Where |
+|---|---|---|
+| **FFmpeg / FFprobe** | Core encode/decode/trim/concat engine used by every other tool | system install (`apt`), also vendored via `imageio-ffmpeg` in the venv |
+| **Python 3.11 (.venv)** | MoviePy edits, Whisper transcription, pipeline scripting | `requirements.txt` |
+| **MoviePy** | Programmatic video editing (cut, overlay, compose) | `requirements.txt` |
+| **openai-whisper / faster-whisper** | Speech-to-text transcription for captions | `requirements.txt` |
+| **Node.js 22 + Remotion** | Programmatic, React-based video/caption rendering | `package.json` |
+
+## Setup
+
+Prerequisites: Python 3.11+, Node.js 22+, and (on Debian/Ubuntu) the ability to
+`apt-get install ffmpeg` — or have FFmpeg already on your `PATH`.
+
+```bash
+# 1. FFmpeg (skip if already installed — check with `ffmpeg -version`)
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+# 2. Python environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 3. Node / Remotion
+npm install
+
+# 4. Environment variables
+cp .env.example .env
+# then fill in any API keys / overrides you need
+```
+
+### Verify the install
+
+```bash
+source .venv/bin/activate
+ffmpeg -version
+python -c "import moviepy, whisper, faster_whisper; print('python deps OK')"
+whisper --help >/dev/null && echo "whisper CLI OK"
+npx tsc --noEmit && echo "remotion project typechecks OK"
+```
+
+### Remotion notes
+
+- `scripts/remotion/src/` holds the Remotion project (`Root.tsx` registers
+  compositions, `index.ts` is the entry point). Add new compositions there.
+- `npm run remotion:studio` — open the Remotion Studio preview UI.
+- `npm run remotion:render` — render the default composition from the CLI.
+- In sandboxed/offline environments, Remotion's normal auto-download of headless
+  Chrome may be blocked by network policy. If so, set `BROWSER_EXECUTABLE` in
+  `.env` (or pass `--browser-executable`) to point at a local Chrome/Chromium
+  binary. On a normal machine with open network access this is not needed —
+  Remotion downloads and caches its own browser automatically on first run.
+
+### Whisper notes
+
+- Model size and device are configured in `config/whisper.json` (also
+  overridable via `WHISPER_MODEL` / `WHISPER_DEVICE` in `.env`). `tiny`/`base`
+  run fast on CPU; `medium`/`large` are far more accurate but slower and
+  memory-hungry, and benefit from a CUDA GPU (`WHISPER_DEVICE=cuda`).
+- Whisper downloads model weights to a local cache on first use (`.cache/whisper/`,
+  git-ignored) — this requires network access the first time a given model size
+  is used.
+
+## Configuration
+
+- `config/paths.json` — canonical input/output/asset/caption directory map.
+- `config/whisper.json` — default transcription model/device/output settings.
+- `config/export_presets.json` — per-destination render presets (resolution,
+  fps, codec, quality) for reels/shorts/youtube/drafts.
+- `.env` (from `.env.example`) — secrets and machine-specific overrides; never
+  committed.
+- `remotion.config.ts` — Remotion CLI/bundler configuration.
+- `tsconfig.json` — TypeScript config for the Remotion project.
+
 ## Status
 
 - [x] Project structure created
-- [ ] Dependencies installed (FFmpeg, Whisper, MoviePy, Remotion, etc.)
-- [ ] Editing scripts implemented
+- [x] Dependencies installed and verified (FFmpeg, Whisper, MoviePy, Remotion)
+- [ ] Editing scripts/workflows implemented (next step)
 
 ## Notes
 
 - `input/`, `output/`, `captions/`, `logs/`, and `temp/` working data are git-ignored by default
   (see `.gitignore`) — only the folder structure (`.gitkeep`) is tracked. Assets like music,
   fonts, and logos are tracked since they're reusable across projects.
+- `.venv/` and `node_modules/` are git-ignored — reinstall with the Setup steps above on a
+  fresh clone.

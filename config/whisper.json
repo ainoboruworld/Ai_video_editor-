@@ -1,0 +1,11 @@
+{
+  "model": "base",
+  "device": "cpu",
+  "language": null,
+  "task": "transcribe",
+  "output_formats": ["srt", "json"],
+  "output_dirs": {
+    "srt": "captions/srt",
+    "json": "captions/json"
+  }
+}

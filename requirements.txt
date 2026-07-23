@@ -1,3 +1,21 @@
 # Python dependencies for the AI video editor pipeline.
-# Intentionally left empty for now — populated in the dependency-installation step
-# (expected: moviepy, openai-whisper / faster-whisper, ffmpeg-python, etc.)
+# Install into the project virtual environment:
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# --- Video editing / processing ---
+moviepy==2.2.1
+ffmpeg-python==0.2.0
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+pydub==0.25.1
+
+# --- Transcription / captions ---
+openai-whisper==20250625
+faster-whisper==1.2.1
+pysrt==1.1.2
+
+# --- Core utilities ---
+numpy==2.4.6
+Pillow==11.3.0
+tqdm==4.69.0
+python-dotenv==1.2.2

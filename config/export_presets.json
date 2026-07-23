@@ -1,0 +1,6 @@
+{
+  "reels": { "width": 1080, "height": 1920, "fps": 30, "codec": "libx264", "crf": 18 },
+  "shorts": { "width": 1080, "height": 1920, "fps": 30, "codec": "libx264", "crf": 18 },
+  "youtube": { "width": 1920, "height": 1080, "fps": 30, "codec": "libx264", "crf": 18 },
+  "drafts": { "width": 1280, "height": 720, "fps": 24, "codec": "libx264", "crf": 23 }
+}

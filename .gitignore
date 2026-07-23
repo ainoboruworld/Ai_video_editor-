@@ -14,9 +14,18 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# --- Remotion ---
+.remotion/
+out/
+scripts/remotion/out/
+
+# --- Whisper model cache (re-downloaded on demand) ---
+.cache/whisper/
+
 # --- Env / secrets ---
 .env
 .env.*
+!.env.example
 *.key
 
 # --- Editor ---

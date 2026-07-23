@@ -3,7 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "description": "Reusable AI-assisted video editing workspace (FFmpeg, Whisper, MoviePy, Remotion).",
-  "scripts": {},
-  "dependencies": {},
-  "devDependencies": {}
+  "scripts": {
+    "remotion:studio": "remotion studio scripts/remotion/src/index.ts",
+    "remotion:render": "remotion render scripts/remotion/src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.497",
+    "@remotion/cli": "^4.0.497",
+    "@remotion/player": "^4.0.497",
+    "@remotion/renderer": "^4.0.497",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.497"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.7.3"
+  }
 }
