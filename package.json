@@ -1,0 +1,9 @@
+{
+  "name": "ai-video-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable AI-assisted video editing workspace (FFmpeg, Whisper, MoviePy, Remotion).",
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {}
+}

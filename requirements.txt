@@ -1,0 +1,3 @@
+# Python dependencies for the AI video editor pipeline.
+# Intentionally left empty for now — populated in the dependency-installation step
+# (expected: moviepy, openai-whisper / faster-whisper, ffmpeg-python, etc.)
