@@ -1,0 +1,23 @@
+{
+  "name": "ai-video-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-first professional video editor: timeline editing, transcription, AI clips, captions, B-roll, FFmpeg rendering.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm run dev --workspace=@ave/api",
+    "dev:web": "npm run dev --workspace=@ave/web",
+    "build": "npm run build --workspace=@ave/editor-core --workspace=@ave/api --workspace=@ave/web",
+    "test": "npm run test --workspace=@ave/editor-core",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:setup": "npm run db:setup --workspace=@ave/api"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.7.3"
+  }
+}
