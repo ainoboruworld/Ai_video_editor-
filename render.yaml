@@ -1,0 +1,23 @@
+# Render.com blueprint: deploys the API + render worker as a Docker web
+# service with a persistent disk for media and the SQLite database.
+# The frontend deploys separately on Vercel (root directory: apps/web).
+services:
+  - type: web
+    name: ai-video-editor-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: starter
+    disk:
+      name: media
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: "4001"
+      - key: DATA_DIR
+        value: /data/media-store
+      - key: DATABASE_URL
+        value: file:/data/dev.db
+      - key: WHISPER_MODEL
+        value: small
