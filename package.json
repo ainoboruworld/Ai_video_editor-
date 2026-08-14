@@ -2,25 +2,24 @@
   "name": "ai-video-editor",
   "version": "0.1.0",
   "private": true,
-  "description": "Reusable AI-assisted video editing workspace (FFmpeg, Whisper, MoviePy, Remotion).",
+  "description": "AI-first professional video editor: timeline editing, transcription, AI clips, captions, B-roll, FFmpeg rendering.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm run dev --workspace=@ave/api",
+    "dev:web": "npm run dev --workspace=@ave/web",
+    "build": "npm run build --workspace=@ave/editor-core --workspace=@ave/api --workspace=@ave/web",
+    "test": "npm run test --workspace=@ave/editor-core",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:setup": "npm run db:setup --workspace=@ave/api",
     "remotion:studio": "remotion studio scripts/remotion/src/index.ts",
-    "remotion:render": "remotion render scripts/remotion/src/index.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@remotion/bundler": "^4.0.497",
-    "@remotion/cli": "^4.0.497",
-    "@remotion/player": "^4.0.497",
-    "@remotion/renderer": "^4.0.497",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "remotion": "^4.0.497"
+    "remotion:render": "remotion render scripts/remotion/src/index.ts"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "npm-run-all": "^4.1.5",
     "typescript": "^5.7.3"
   }
 }
