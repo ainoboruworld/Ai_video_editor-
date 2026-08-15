@@ -18,8 +18,23 @@ export interface ParseResult {
   droppedOutsideVideo: number;
 }
 
+const TIME = String.raw`\d{1,2}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?`;
 /** `00:00 - 00:04`, `00:00 –> 00:04`, `[00:00 - 00:04]`, SRT's `-->` form. */
-const RANGE = /^\[?\s*(\d{1,2}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?)\s*(?:-{1,2}>?|–|—|to)\s*(\d{1,2}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?)\s*\]?\s*$/;
+const RANGE = new RegExp(String.raw`^\[?\s*(${TIME})\s*(?:-{1,2}>?|–|—|to)\s*(${TIME})\s*\]?\s*$`);
+/**
+ * The same range with the line's text after it: `[00:46 - 00:47] "Uh,"`.
+ *
+ * Common enough to matter — several transcription tools emit exactly this — and
+ * without it the leading-timestamp rule half-matches, leaving `00:47] "` sitting
+ * in the transcript text and throwing the real end time away.
+ */
+const RANGE_INLINE = new RegExp(
+  // The lookahead stops the timestamp being backtracked into: without it,
+  // SRT's `00:00:04,000` gives up its last digit to satisfy the text group.
+  // The text must also be separated by a bracket or whitespace, so a bare
+  // range on its own line stays a block header.
+  String.raw`^\[?\s*(${TIME})\s*(?:-{1,2}>?|–|—|to)\s*(${TIME})(?![\d.,:])\s*(?:\]\s*|\s+)[-–—:]?\s*(\S.*)$`,
+);
 /** A single leading timestamp: `00:04 Today we…` or `[00:04] Today we…` */
 const LEADING = /^\[?\s*(\d{1,2}:\d{1,2}(?::\d{1,2})?(?:[.,]\d{1,3})?)\s*\]?\s*[-–—:]?\s*(.*)$/;
 /** A bare SRT sequence number on its own line. */
@@ -35,6 +50,11 @@ export function parseTranscript(raw: string, duration?: number): ParseResult {
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((line) => line.trim());
+
+  const inline = parseRangeInline(lines);
+  if (inline.length > 0) {
+    return withNote(inline, duration, false, (kept) => `Imported ${kept} timed segments.`);
+  }
 
   const ranged = parseRanged(lines);
   if (ranged.length > 0) {
@@ -87,6 +107,36 @@ function withNote(
   return { segments, estimatedTimings: estimated, note, droppedOutsideVideo: dropped };
 }
 
+/** One segment per line: a start–end range followed by that segment's text. */
+function parseRangeInline(lines: string[]): TranscriptSegment[] {
+  const segments: TranscriptSegment[] = [];
+
+  for (const line of lines) {
+    if (!line || SEQUENCE.test(line)) continue;
+    const match = line.match(RANGE_INLINE);
+    if (!match) continue;
+    const start = parseTimestamp(match[1]!);
+    const end = parseTimestamp(match[2]!);
+    const text = stripWrappingQuotes((match[3] ?? '').trim());
+    if (start === null || end === null || text.length === 0) continue;
+    segments.push({ id: segmentId(), start, end, text });
+  }
+
+  // A single hit is more likely a stray line inside prose than a timed transcript.
+  return segments.length >= 2 ? segments : [];
+}
+
+/**
+ * Transcription tools often wrap each line in quotes. They are punctuation about
+ * the transcript rather than words in it, and leaving them in shifts every
+ * character offset the filler highlighter works with.
+ */
+function stripWrappingQuotes(text: string): string {
+  const trimmed = text.trim();
+  const quoted = /^["\u201C\u201D\u2018\u2019']([\s\S]*)["\u201C\u201D\u2018\u2019']$/.exec(trimmed);
+  return quoted ? quoted[1]!.trim() : trimmed;
+}
+
 /** Blocks introduced by a start–end range, with the text on following lines. */
 function parseRanged(lines: string[]): TranscriptSegment[] {
   const segments: TranscriptSegment[] = [];
@@ -118,7 +168,7 @@ function parseLeading(lines: string[], duration?: number): TranscriptSegment[] {
     const match = line.match(LEADING);
     if (!match) continue;
     const start = parseTimestamp(match[1]!);
-    const text = (match[2] ?? '').trim();
+    const text = stripWrappingQuotes((match[2] ?? '').trim());
     if (start === null || text.length === 0) continue;
     found.push({ start, text });
   }

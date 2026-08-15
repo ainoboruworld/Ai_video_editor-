@@ -2,7 +2,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { fetchWithTimeout } from '@/lib/http';
 import type { MediaSearchRequest, StockMediaItem } from '@/types';
-import { orientationOf, providerError, type MediaProvider } from './types';
+import { orientationOf, providerFailure, type MediaProvider } from './types';
 
 const API = 'https://api.pexels.com';
 
@@ -84,7 +84,7 @@ export class PexelsProvider implements MediaProvider {
       headers: { Authorization: key },
       cache: 'no-store',
     });
-    if (!res.ok) throw providerError('Pexels', 'PEXELS_API_KEY', res.status, 'video search');
+    if (!res.ok) throw await providerFailure('Pexels', 'PEXELS_API_KEY', res, 'video search');
     const body = (await res.json()) as { videos?: PexelsVideo[] };
     return (body.videos ?? []).flatMap((video): StockMediaItem[] => {
       const file = pickVideoFile(video.video_files);
@@ -122,7 +122,7 @@ export class PexelsProvider implements MediaProvider {
       headers: { Authorization: key },
       cache: 'no-store',
     });
-    if (!res.ok) throw providerError('Pexels', 'PEXELS_API_KEY', res.status, 'photo search');
+    if (!res.ok) throw await providerFailure('Pexels', 'PEXELS_API_KEY', res, 'photo search');
     const body = (await res.json()) as { photos?: PexelsPhoto[] };
     return (body.photos ?? []).map((photo) => ({
       id: `pexels-photo-${photo.id}`,

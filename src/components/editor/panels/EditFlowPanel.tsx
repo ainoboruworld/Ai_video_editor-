@@ -808,12 +808,13 @@ function FillerReview({
   }
 
   const estimated = candidates.filter((candidate) => candidate.estimatedTiming).length;
+  const selectedCount = candidates.filter((candidate) => accepted.has(candidate.id)).length;
 
   return (
     <>
       <div className="flex items-center gap-1.5">
         <Badge>{candidates.length} potential filler words</Badge>
-        <span className="text-2xs text-ink-3">{accepted.size} selected</span>
+        <span className="text-2xs text-ink-3">{selectedCount} selected</span>
       </div>
       <div className="mt-1.5 flex gap-1.5">
         <Button size="sm" className="flex-1" onClick={onAcceptAll}>
@@ -845,36 +846,56 @@ function FillerReview({
                 {clock(segment.start)}
               </button>
               <p className="text-2xs leading-relaxed text-ink-1">
-                {runs.map((run, index) =>
-                  run.candidate ? (
-                    <button
+                {runs.map((run, index) => {
+                  const candidate = run.candidate;
+                  if (!candidate) return <span key={index}>{run.text}</span>;
+                  const isAccepted = accepted.has(candidate.id);
+                  return (
+                    // Two separate controls on purpose: jumping to a word to
+                    // hear it must not change whether it gets cut. They used to
+                    // be one button, so inspecting a word after "Accept all"
+                    // silently dropped it from the selection.
+                    <span
                       key={index}
-                      type="button"
-                      title={`${run.candidate.reason}${run.candidate.estimatedTiming ? ' · timing estimated' : ''}`}
-                      onClick={() => {
-                        onSeek(run.candidate!.start);
-                        onToggle(run.candidate!);
-                      }}
                       className={cn(
-                        'rounded px-0.5 transition-colors',
-                        accepted.has(run.candidate.id)
-                          ? 'bg-danger/25 text-danger line-through'
-                          : 'bg-warn/15 text-warn',
+                        'mx-px inline-flex items-baseline gap-px rounded',
+                        isAccepted ? 'bg-danger/25' : 'bg-warn/15',
                       )}
                     >
-                      {run.text}
-                    </button>
-                  ) : (
-                    <span key={index}>{run.text}</span>
-                  ),
-                )}
+                      <button
+                        type="button"
+                        title={`Jump to ${clock(candidate.start)}${candidate.estimatedTiming ? ' · timing estimated' : ''}`}
+                        onClick={() => onSeek(candidate.start)}
+                        className={cn(
+                          'rounded-l px-0.5',
+                          isAccepted ? 'text-danger line-through' : 'text-warn',
+                        )}
+                      >
+                        {run.text}
+                      </button>
+                      <button
+                        type="button"
+                        title={isAccepted ? `Keep this one (${candidate.reason})` : `Cut this one (${candidate.reason})`}
+                        aria-label={isAccepted ? 'Keep this word' : 'Cut this word'}
+                        onClick={() => onToggle(candidate)}
+                        className={cn(
+                          'rounded-r px-0.5 text-[9px] leading-none',
+                          isAccepted ? 'text-danger hover:bg-danger/25' : 'text-warn hover:bg-warn/25',
+                        )}
+                      >
+                        {isAccepted ? '✕' : '＋'}
+                      </button>
+                    </span>
+                  );
+                })}
               </p>
             </div>
           );
         })}
       </div>
       <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-        Click a highlight to jump there and toggle it. Struck-through words will be cut.
+        Click a word to jump there and hear it. Click the ✕ beside it to keep it instead. Struck-through words will be
+        cut.
       </p>
     </>
   );

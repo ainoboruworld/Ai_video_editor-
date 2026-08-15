@@ -228,3 +228,50 @@ describe('segments outside the video', () => {
     expect(result.note).not.toMatch(/fell outside/i);
   });
 });
+
+describe('a range and its text on one line', () => {
+  const raw = `[00:40 - 00:46] "We keep the right kind of talent at the initial stage."
+[00:46 - 00:47] "Uh,"
+[00:54 - 00:56] "Uh,"
+[01:00 - 01:04] "So basically, um, it was different."`;
+
+  it('keeps the text and both ends of the range', () => {
+    const { segments, estimatedTimings } = parseTranscript(raw, 120);
+    expect(segments).toHaveLength(4);
+    expect(estimatedTimings).toBe(false);
+
+    expect(segments[1]!.start).toBe(46);
+    expect(segments[1]!.end).toBe(47);
+    // Previously this came through as `00:47] "Uh,"` — the end timestamp and a
+    // stray bracket left sitting in the transcript.
+    expect(segments[1]!.text).toBe('Uh,');
+  });
+
+  it('does not run each segment up to the next one', () => {
+    const { segments } = parseTranscript(raw, 120);
+    expect(segments[0]!.end).toBe(46);
+    expect(segments[2]!.end).toBe(56);
+  });
+
+  it('strips the quotes transcription tools wrap each line in', () => {
+    const { segments } = parseTranscript(raw, 120);
+    expect(segments[0]!.text).toBe('We keep the right kind of talent at the initial stage.');
+    expect(segments[3]!.text).toBe('So basically, um, it was different.');
+  });
+
+  it('still reads a plain range block with the text underneath', () => {
+    const { segments } = parseTranscript('00:00 - 00:04\nHello there.\n\n00:04 - 00:08\nSecond line.', 30);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]!.text).toBe('Hello there.');
+    expect(segments[1]!.start).toBe(4);
+  });
+
+  it('does not mistake one stray range line in prose for a transcript', () => {
+    const { segments, estimatedTimings } = parseTranscript(
+      'Some notes about the video.\n[00:10 - 00:12] a single aside\nAnd more prose here.',
+      60,
+    );
+    expect(estimatedTimings).toBe(true);
+    expect(segments.length).toBeGreaterThan(0);
+  });
+});
