@@ -8,7 +8,7 @@ import {
   totalDuration,
   type LoudnessEnvelope,
 } from '@/features/analysis/audioAnalysis';
-import { cutsToCommands, planFromKeepRanges, sourceToTimeline } from '@/features/ai/autoEdit';
+import { cutsToCommands, planFromKeepRanges, planTightenToTarget, sourceToTimeline } from '@/features/ai/autoEdit';
 import { applyCommand, makeClip, makeSequence, sequenceDuration, trackByRole } from '@/lib/engine';
 
 /** Builds an envelope from a loudness pattern, one value per 100ms. */
@@ -148,5 +148,36 @@ describe('planFromKeepRanges', () => {
     const plan = planFromKeepRanges([{ start: 10, end: 20 }, { start: 40, end: 50 }], clip, 60);
     expect(totalDuration(plan.cuts)).toBeCloseTo(40, 5);
     expect(plan.cuts).toHaveLength(3);
+  });
+});
+
+describe('planTightenToTarget', () => {
+  const clip = makeClip({ id: 'c', kind: 'video', start: 0, duration: 60, sourceIn: 0, speed: 1 });
+  const analysis = {
+    envelope: { values: Float32Array.from([]), windowSeconds: 0.1, duration: 60, peak: 1 },
+    silences: [
+      { start: 5, end: 7 },   // 2s
+      { start: 20, end: 28 }, // 8s — longest
+      { start: 40, end: 44 }, // 4s
+    ],
+    speech: [],
+    removableSeconds: 14,
+  };
+
+  it('cuts the longest pauses first and stops once the target is met', () => {
+    const plan = planTightenToTarget(analysis, clip, 60, 50);
+    // Needs 10s: takes the 8s pause, then the 4s one.
+    expect(totalDuration(plan.cuts)).toBeCloseTo(12, 5);
+    expect(plan.cuts.some((cut) => cut.start === 20)).toBe(true);
+    expect(plan.cuts.some((cut) => cut.start === 5)).toBe(false);
+  });
+
+  it('does nothing when already under the target', () => {
+    expect(planTightenToTarget(analysis, clip, 60, 90).cuts).toHaveLength(0);
+  });
+
+  it('removes every pause it has when the target is unreachable', () => {
+    const plan = planTightenToTarget(analysis, clip, 60, 5);
+    expect(totalDuration(plan.cuts)).toBeCloseTo(14, 5);
   });
 });

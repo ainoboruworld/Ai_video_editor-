@@ -101,6 +101,38 @@ export function planSilenceCuts(
   };
 }
 
+/**
+ * Tightens a recording toward a target length using nothing but the silence
+ * map: the longest pauses go first, so the result still breathes where it
+ * matters. This is the keyless path — it needs no AI provider at all.
+ */
+export function planTightenToTarget(
+  analysis: AnalysisResult,
+  clip: Clip,
+  currentDuration: number,
+  targetSeconds: number,
+): CutPlan {
+  const needed = currentDuration - targetSeconds;
+  if (needed <= 0) {
+    return { cuts: [], removedSeconds: 0, label: 'Tighten' };
+  }
+
+  const ranked = [...analysis.silences].sort((a, b) => b.end - b.start - (a.end - a.start));
+  const chosen: Range[] = [];
+  let removed = 0;
+  for (const silence of ranked) {
+    if (removed >= needed) break;
+    chosen.push(silence);
+    removed += silence.end - silence.start;
+  }
+
+  const cuts = chosen
+    .map((range) => sourceToTimeline(clip, range))
+    .filter((range): range is Range => range !== null);
+
+  return { cuts, removedSeconds: totalDuration(cuts), label: 'Tighten to target' };
+}
+
 /** Filler-word cuts from transcript word timings. */
 export function planFillerCuts(words: TranscriptWord[], clip: Clip): CutPlan {
   const cuts = detectFillers(words)
