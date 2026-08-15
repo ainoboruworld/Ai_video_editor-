@@ -8,7 +8,15 @@ import {
   totalDuration,
   type LoudnessEnvelope,
 } from '@/features/analysis/audioAnalysis';
-import { cutsToCommands, planFromKeepRanges, planTightenToTarget, sourceToTimeline } from '@/features/ai/autoEdit';
+import {
+  condenseCues,
+  cutsToCommands,
+  planFromKeepRanges,
+  planTightenToTarget,
+  PLAN_MAX_CUE_CHARS,
+  PLAN_MAX_CUES,
+  sourceToTimeline,
+} from '@/features/ai/autoEdit';
 import { applyCommand, makeClip, makeSequence, sequenceDuration, trackByRole } from '@/lib/engine';
 
 /** Builds an envelope from a loudness pattern, one value per 100ms. */
@@ -179,5 +187,43 @@ describe('planTightenToTarget', () => {
   it('removes every pause it has when the target is unreachable', () => {
     const plan = planTightenToTarget(analysis, clip, 60, 5);
     expect(totalDuration(plan.cuts)).toBeCloseTo(14, 5);
+  });
+});
+
+describe('condenseCues', () => {
+  const many = Array.from({ length: 2500 }, (_, i) => ({ start: i, end: i + 1, text: `line ${i}` }));
+
+  it('passes small transcripts through untouched', () => {
+    const cues = [{ start: 0, end: 1, text: 'hello' }, { start: 1, end: 2, text: 'world' }];
+    expect(condenseCues(cues)).toEqual(cues);
+  });
+
+  it('merges long transcripts down to the request limit', () => {
+    const condensed = condenseCues(many);
+    expect(condensed.length).toBeLessThanOrEqual(PLAN_MAX_CUES);
+    expect(condensed.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the timeline covered and ordered when merging', () => {
+    const condensed = condenseCues(many);
+    expect(condensed[0]!.start).toBe(0);
+    expect(condensed[condensed.length - 1]!.end).toBe(2500);
+    for (let i = 1; i < condensed.length; i++) {
+      expect(condensed[i]!.start).toBeGreaterThanOrEqual(condensed[i - 1]!.start);
+    }
+  });
+
+  it('truncates over-long cue text', () => {
+    const [cue] = condenseCues([{ start: 0, end: 1, text: 'x'.repeat(900) }]);
+    expect(cue!.text.length).toBeLessThanOrEqual(PLAN_MAX_CUE_CHARS);
+  });
+
+  it('drops empty and non-finite cues', () => {
+    const cues = [
+      { start: 0, end: 1, text: '   ' },
+      { start: Number.NaN, end: 2, text: 'bad' },
+      { start: 2, end: 3, text: 'good' },
+    ];
+    expect(condenseCues(cues)).toEqual([{ start: 2, end: 3, text: 'good' }]);
   });
 });

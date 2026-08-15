@@ -192,6 +192,50 @@ export async function transcribeTimeline(onProgress?: (message: string) => void)
   return cues;
 }
 
+/** Limits the plan request has to respect — mirrors the API schema. */
+export const PLAN_MAX_CUES = 1000;
+export const PLAN_MAX_CUE_CHARS = 500;
+
+/**
+ * Shapes a transcript into a request the edit API will accept.
+ *
+ * A few minutes of speech transcribes into hundreds of short cues, and an hour
+ * runs into thousands — past what the endpoint accepts and past what is useful
+ * to a model anyway. Adjacent cues are merged into larger, still-timed lines,
+ * which keeps the transcript readable, keeps the timings honest (the merged
+ * span covers its parts) and keeps the request inside the schema.
+ */
+export function condenseCues(
+  cues: { start: number; end: number; text: string }[],
+  maxCues = PLAN_MAX_CUES,
+  maxChars = PLAN_MAX_CUE_CHARS,
+): { start: number; end: number; text: string }[] {
+  const usable = cues
+    .filter((cue) => cue.text.trim().length > 0 && Number.isFinite(cue.start) && Number.isFinite(cue.end))
+    .map((cue) => ({ start: Math.max(0, cue.start), end: Math.max(0, cue.end), text: cue.text.trim() }));
+
+  if (usable.length === 0) return [];
+
+  const groupSize = Math.ceil(usable.length / maxCues);
+  if (groupSize <= 1) {
+    return usable.map((cue) => ({ ...cue, text: cue.text.slice(0, maxChars) }));
+  }
+
+  const merged: { start: number; end: number; text: string }[] = [];
+  for (let i = 0; i < usable.length; i += groupSize) {
+    const group = usable.slice(i, i + groupSize);
+    merged.push({
+      start: group[0]!.start,
+      end: group[group.length - 1]!.end,
+      text: group
+        .map((cue) => cue.text)
+        .join(' ')
+        .slice(0, maxChars),
+    });
+  }
+  return merged;
+}
+
 /** Flattens caption cues into the word list the filler detector needs. */
 export function wordsFromCues(cues: CaptionCue[]): TranscriptWord[] {
   return cues.flatMap((cue) =>
@@ -248,27 +292,42 @@ export interface BrollSuggestion {
   items: StockMediaItem[];
 }
 
-/** Searches stock footage for each B-roll cue the AI proposed. */
+/** The search endpoint accepts this many scenes per request. */
+const BROLL_BATCH_SIZE = 24;
+
+/**
+ * Searches stock footage for each B-roll cue the AI proposed.
+ *
+ * A plan can propose more cues than the search endpoint takes in one request,
+ * so they are sent in batches — dropping the surplus would silently lose
+ * suggestions the user was told they would get.
+ */
 export async function findCutawayBroll(
   cues: { start: number; duration: number; query: string; reason: string }[],
   aspect: AspectRatio,
 ): Promise<BrollSuggestion[]> {
   if (cues.length === 0) return [];
-  const { recommendations } = await api.findBroll({
-    aspect,
-    perScene: 4,
-    scenes: cues.map((cue, index) => ({
-      id: String(index),
-      visual: cue.query,
-      duration: cue.duration,
-      queries: [cue.query],
-    })),
-  });
 
-  return cues.map((cue, index) => ({
-    cue,
-    items: recommendations.find((r) => r.sceneId === String(index))?.items ?? [],
-  }));
+  const results = new Map<number, BrollSuggestion['items']>();
+
+  for (let offset = 0; offset < cues.length; offset += BROLL_BATCH_SIZE) {
+    const batch = cues.slice(offset, offset + BROLL_BATCH_SIZE);
+    const { recommendations } = await api.findBroll({
+      aspect,
+      perScene: 4,
+      scenes: batch.map((cue, index) => ({
+        id: String(offset + index),
+        visual: cue.query,
+        duration: cue.duration,
+        queries: [cue.query],
+      })),
+    });
+    for (const recommendation of recommendations) {
+      results.set(Number(recommendation.sceneId), recommendation.items);
+    }
+  }
+
+  return cues.map((cue, index) => ({ cue, items: results.get(index) ?? [] }));
 }
 
 /** Places an approved cutaway over the speaker on the B-roll track. */

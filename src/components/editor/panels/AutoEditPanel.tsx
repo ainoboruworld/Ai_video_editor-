@@ -24,6 +24,7 @@ import {
   planFillerCuts,
   planFromKeepRanges,
   planSilenceCuts,
+  condenseCues,
   planTightenToTarget,
   primaryClip,
   transcribeTimeline,
@@ -357,11 +358,18 @@ export function AutoEditPanel() {
                     if (!cues || cues.length === 0) throw new Error('Transcribe the video first — the AI edits from what is said.');
                     setStatus('Planning the edit…');
                     const sourceDuration = primary.clip.sourceIn + primary.clip.duration * primary.clip.speed;
+                    const condensed = condenseCues(cues);
+                    if (condensed.length === 0) throw new Error('The transcript is empty — nothing to edit from.');
+
                     const { plan } = await api.planEdit({
-                      durationSeconds: sourceDuration,
-                      targetSeconds: targetSeconds === '' ? undefined : targetSeconds,
-                      goal: goal || undefined,
-                      cues: cues.map((cue) => ({ start: cue.start, end: cue.end, text: cue.text })),
+                      // Guard the numeric fields the same way the API validates
+                      // them, so a stray value can never turn into a bare
+                      // "invalid request".
+                      durationSeconds: Math.max(1, sourceDuration),
+                      targetSeconds:
+                        targetSeconds === '' || Number(targetSeconds) < 5 ? undefined : Number(targetSeconds),
+                      goal: goal.trim() ? goal.trim().slice(0, 400) : undefined,
+                      cues: condensed,
                     });
 
                     setPlanSummary(plan.summary || plan.title || null);
