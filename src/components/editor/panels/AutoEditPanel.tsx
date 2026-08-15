@@ -24,6 +24,7 @@ import {
   planFillerCuts,
   planFromKeepRanges,
   planSilenceCuts,
+  planTightenToTarget,
   primaryClip,
   transcribeTimeline,
   wordsFromCues,
@@ -33,6 +34,7 @@ import {
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration, type AspectRatio } from '@/lib/engine';
 import { Badge, Button, EmptyState, Field, Input, PanelHeader, ProgressBar, Select, Textarea } from '@/components/ui';
+import { AlertTriangle } from 'lucide-react';
 import { clock } from '@/lib/format';
 import { toast } from '@/state/toastStore';
 import type { CaptionCue } from '@/types';
@@ -119,6 +121,22 @@ export function AutoEditPanel() {
       />
 
       <div className="flex-1 overflow-y-auto p-2.5">
+        {capabilities && !aiReady ? (
+          <div className="mb-3 rounded-md border border-warn/25 bg-warn/5 p-2.5">
+            <p className="flex items-start gap-1.5 text-2xs font-medium text-warn">
+              <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+              No AI key on this deployment
+            </p>
+            <p className="mt-1 text-2xs leading-relaxed text-ink-2">
+              Steps 2 and 3 stay locked until one is set. Add a free{' '}
+              <code className="font-mono text-ink-1">GEMINI_API_KEY</code> (or{' '}
+              <code className="font-mono text-ink-1">GROQ_API_KEY</code>) in your host&apos;s environment variables —
+              on Vercel that is <span className="text-ink-1">Settings → Environment Variables</span>, then redeploy.
+              Cutting dead air in step 1 works right now without it.
+            </p>
+          </div>
+        ) : null}
+
         {!primary ? (
           <>
             <EmptyState
@@ -157,7 +175,7 @@ export function AutoEditPanel() {
             </div>
 
             {/* Step 1 — works with no keys at all */}
-            <Step number={1} title="Cut dead air" note="No API key needed">
+            <Step number={1} title="Cut dead air" note="Works with no key">
               <Button
                 size="sm"
                 className="w-full justify-start"
@@ -308,6 +326,25 @@ export function AutoEditPanel() {
                 onChange={(event) => setGoal(event.target.value)}
               />
 
+              {analysis && targetSeconds !== '' ? (
+                <Button
+                  size="sm"
+                  className="mt-2 w-full justify-start"
+                  icon={<Scissors size={12} />}
+                  onClick={() => {
+                    const plan = planTightenToTarget(analysis, primary.clip, duration, Number(targetSeconds));
+                    if (!applyCutPlan(plan)) {
+                      toast.info('Already at or under the target length');
+                      return;
+                    }
+                    toast.success(`Tightened by ${clock(plan.removedSeconds)}`, 'Longest pauses cut first.');
+                    setAnalysis(null);
+                  }}
+                >
+                  Tighten to {targetSeconds}s without AI
+                </Button>
+              ) : null}
+
               <Button
                 size="sm"
                 variant="primary"
@@ -348,9 +385,13 @@ export function AutoEditPanel() {
                 Edit my video
               </Button>
 
-              {!cues || cues.length === 0 ? (
-                <p className="mt-1.5 text-2xs text-ink-3">Transcribe the video first — the AI edits from what is said.</p>
-              ) : null}
+              <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+                {!aiReady
+                  ? 'Blocked: no AI key on this deployment. Use “Tighten without AI” above, or add a key and redeploy.'
+                  : !cues || cues.length === 0
+                    ? 'Blocked: run step 2 first — the AI decides what to cut from what is said.'
+                    : 'Ready. The AI will keep the strongest segments and propose cutaways.'}
+              </p>
               {planSummary ? <p className="mt-2 text-2xs leading-relaxed text-ink-2">{planSummary}</p> : null}
             </Step>
 
