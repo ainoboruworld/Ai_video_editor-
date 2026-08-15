@@ -41,10 +41,22 @@ const filtersSchema = z
   })
   .passthrough();
 
+/**
+ * A colour that is safe to hand to canvas.
+ *
+ * These strings are assigned to `fillStyle` on a shared drawing context, so
+ * they are pinned to hex and rgb/hsl forms rather than accepting any CSS colour
+ * expression from a stored document.
+ */
+const cssColour = z
+  .string()
+  .max(40)
+  .regex(/^(#[0-9a-f]{3,8}|rgba?\([\d.,\s%]+\)|hsla?\([\d.,\s%deg]+\))$/i, 'not a colour');
+
 const clipSchema = z
   .object({
     id: z.string().min(1).max(120),
-    kind: z.enum(['video', 'audio', 'image', 'text', 'caption']),
+    kind: z.enum(['video', 'audio', 'image', 'text', 'caption', 'graphic']),
     name: z.string().max(200),
     assetId: z.string().max(120).nullable(),
     start: finite.min(0).max(60 * 60 * 6),
@@ -58,6 +70,25 @@ const clipSchema = z
     transform: transformSchema,
     crop: cropSchema,
     filters: filtersSchema,
+    captionColors: z
+      .object({
+        text: cssColour.optional(),
+        highlight: cssColour.nullish(),
+        background: cssColour.nullish(),
+        stroke: cssColour.nullish(),
+      })
+      .nullish(),
+    graphic: z
+      .object({
+        kind: z.enum(['stat', 'list', 'quote']),
+        title: z.string().max(120),
+        value: z.string().max(240),
+        caption: z.string().max(240),
+        items: z.array(z.string().max(160)).max(8),
+        accent: cssColour,
+        position: z.enum(['left', 'right', 'centre']),
+      })
+      .nullish(),
   })
   .passthrough();
 

@@ -5,7 +5,7 @@ import { Captions, Mic, Trash2, Type } from 'lucide-react';
 import { CAPTION_PRESETS } from '@/features/timeline/compositor';
 import { renderTimelineAudio } from '@/features/captions/extractAudio';
 import { api, ApiClientError } from '@/lib/api-client';
-import { trackByRole, type CaptionStyleName, type EditorCommand } from '@/lib/engine';
+import { trackByRole, type CaptionColors, type CaptionStyleName, type EditorCommand } from '@/lib/engine';
 import { useEditorStore } from '@/state/editorStore';
 import { Badge, Button, EmptyState, Input, PanelHeader } from '@/components/ui';
 import { toast } from '@/state/toastStore';
@@ -17,6 +17,66 @@ import { cn } from '@/lib/cn';
  * timeline. Building captions from an existing transcript lives in the Edit and
  * Transcript panels, which do it without a second transcription request.
  */
+const SWATCHES = ['#ffffff', '#000000', '#7c5cff', '#34d399', '#f5b544', '#fb7185', '#38bdf8'];
+
+function ColourRow({
+  label,
+  value,
+  onChange,
+  disabled,
+  clearable,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (value: string | null) => void;
+  disabled?: boolean;
+  clearable?: boolean;
+}) {
+  return (
+    <div className={cn('mb-1.5 flex items-center gap-1', disabled && 'opacity-40')}>
+      <span className="w-14 shrink-0 text-2xs text-ink-2">{label}</span>
+      <div className="flex flex-1 items-center gap-0.5">
+        {clearable ? (
+          <button
+            type="button"
+            disabled={disabled}
+            title={`No ${label.toLowerCase()}`}
+            onClick={() => onChange(null)}
+            className={cn(
+              'h-5 w-5 rounded border text-2xs leading-none text-ink-3',
+              value === null ? 'border-accent bg-accent-ghost' : 'border-line bg-bg-2',
+            )}
+          >
+            ∅
+          </button>
+        ) : null}
+        {SWATCHES.map((swatch) => (
+          <button
+            key={swatch}
+            type="button"
+            disabled={disabled}
+            title={swatch}
+            onClick={() => onChange(swatch)}
+            style={{ background: swatch }}
+            className={cn(
+              'h-5 w-5 rounded border',
+              value?.toLowerCase() === swatch ? 'border-accent ring-1 ring-accent' : 'border-line',
+            )}
+          />
+        ))}
+        <input
+          type="color"
+          disabled={disabled}
+          value={value && value.startsWith('#') ? value : '#ffffff'}
+          onChange={(event) => onChange(event.target.value)}
+          title="Custom colour"
+          className="h-5 w-6 cursor-pointer rounded border border-line bg-transparent p-0"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function CaptionsPanel() {
   const sequence = useEditorStore((state) => state.sequence);
   const assets = useEditorStore((state) => state.assets);
@@ -65,6 +125,19 @@ export function CaptionsPanel() {
       setStatus(null);
     }
   };
+
+  // Colours apply to every caption at once: subtitles that change palette
+  // halfway through a video are a mistake, not a feature.
+  const recolour = (colors: CaptionColors | null, label: string) => {
+    if (captions.length === 0) return;
+    apply(
+      captions.map((clip) => ({ type: 'SET_CAPTION_COLORS' as const, clipId: clip.id, colors })),
+      label,
+    );
+  };
+
+  const current = captions[0]?.captionColors ?? null;
+  const preset = CAPTION_PRESETS[captions[0]?.captionStyle ?? 'bold'] ?? CAPTION_PRESETS.bold!;
 
   const restyle = (style: CaptionStyleName) => {
     if (captions.length === 0) return;
@@ -122,6 +195,52 @@ export function CaptionsPanel() {
             );
           })}
         </div>
+      </div>
+
+      <div className="border-b border-line p-2">
+        <p className="mb-1.5 text-2xs uppercase tracking-wide text-ink-3">Colour</p>
+
+        <ColourRow
+          label="Text"
+          value={current?.text ?? preset.color}
+          disabled={captions.length === 0}
+          onChange={(text) => recolour({ text: text ?? '#ffffff' }, 'Caption colour')}
+        />
+        <ColourRow
+          label="Highlight"
+          value={(current?.highlight === undefined ? preset.highlight : current.highlight) ?? null}
+          disabled={captions.length === 0}
+          clearable
+          onChange={(highlight) => recolour({ highlight }, 'Caption highlight')}
+        />
+        <ColourRow
+          label="Outline"
+          value={(current?.stroke === undefined ? preset.stroke : current.stroke) ?? null}
+          disabled={captions.length === 0}
+          clearable
+          onChange={(stroke) => recolour({ stroke }, 'Caption outline')}
+        />
+        <ColourRow
+          label="Box"
+          value={(current?.background === undefined ? preset.background : current.background) ?? null}
+          disabled={captions.length === 0}
+          clearable
+          onChange={(background) => recolour({ background }, 'Caption background')}
+        />
+
+        {current ? (
+          <button
+            type="button"
+            onClick={() => recolour(null, 'Reset caption colours')}
+            className="mt-1.5 text-2xs text-ink-3 underline-offset-2 hover:text-ink-1 hover:underline"
+          >
+            Back to the preset&apos;s colours
+          </button>
+        ) : null}
+        <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+          The preset sets size and position; these set the palette. An outline is what keeps white text readable over
+          bright footage.
+        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">

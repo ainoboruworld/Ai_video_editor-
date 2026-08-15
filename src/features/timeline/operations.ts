@@ -4,7 +4,16 @@
  * Editing operations shared by the toolbar, the context menus and the keyboard
  * shortcuts. Each one is expressed as engine commands so it is undoable.
  */
-import { makeClip, snapTargets, snapTime, trackByRole, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
+import {
+  makeClip,
+  snapTargets,
+  snapTime,
+  trackByRole,
+  type Clip,
+  type EditorCommand,
+  type Graphic,
+  type Sequence,
+} from '@/lib/engine';
 import { useEditorStore, findClip } from '@/state/editorStore';
 import { toast } from '@/state/toastStore';
 import type { Asset } from '@/types';
@@ -136,6 +145,36 @@ export function addTextClip(text: string, options?: { style?: Partial<Clip['text
     'Add text',
   );
   if (applied) useEditorStore.getState().select([id]);
+}
+
+/** Drops a graphic on the text track, at the playhead or at a given time. */
+export function addGraphicClip(graphic: Graphic, options?: { start?: number; duration?: number }): string | null {
+  const state = useEditorStore.getState();
+  const sequence = state.sequence;
+  if (!sequence) return null;
+  const track = trackByRole(sequence, 'text');
+  if (!track) return null;
+
+  const id = newId('g');
+  const start = options?.start ?? nextFreeSlot(sequence, track.id, state.playhead);
+
+  // A graphic is tied to the moment that motivates it, so it cannot just be
+  // nudged along like a text clip. Two stacked at the same time look like one
+  // and only one of them can be selected, so say so rather than pile them up.
+  const occupied = track.clips.find(
+    (clip) => clip.kind === 'graphic' && start < clip.start + clip.duration && clip.start < start + (options?.duration ?? 4),
+  );
+  if (occupied) {
+    toast.info('There is already a graphic here', 'Move or delete that one first, or drop this at a different point.');
+    return null;
+  }
+  const applied = state.apply(
+    { type: 'ADD_GRAPHIC', trackId: track.id, clipId: id, start, duration: options?.duration ?? 4, graphic },
+    'Add graphic',
+  );
+  if (!applied) return null;
+  useEditorStore.getState().select([id]);
+  return id;
 }
 
 /** Snaps a candidate time to nearby clip edges, markers and the playhead. */

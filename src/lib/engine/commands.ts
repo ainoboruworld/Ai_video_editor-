@@ -1,8 +1,10 @@
 import type {
   AspectRatio,
+  CaptionColors,
   CaptionStyleName,
   CaptionWord,
   Clip,
+  Graphic,
   Keyframe,
   KeyframableProp,
   Sequence,
@@ -60,6 +62,16 @@ export type EditorCommand =
       style?: CaptionStyleName;
     }
   | { type: 'SET_CAPTION_STYLE'; clipId: string; style: CaptionStyleName }
+  | { type: 'SET_CAPTION_COLORS'; clipId: string; colors: CaptionColors | null }
+  | {
+      type: 'ADD_GRAPHIC';
+      trackId: string;
+      clipId: string;
+      start: number;
+      duration: number;
+      graphic: Graphic;
+    }
+  | { type: 'SET_GRAPHIC'; clipId: string; graphic: Partial<Graphic> }
   | {
       type: 'ADD_BROLL';
       trackId: string;
@@ -355,6 +367,31 @@ export function applyCommand(seq: Sequence, cmd: EditorCommand): Sequence {
           }),
         ]),
       }));
+
+    case 'SET_CAPTION_COLORS':
+      return withClip(seq, cmd.clipId, (c) => ({
+        ...c,
+        // Merged rather than replaced: setting one colour must not clear the rest.
+        captionColors: cmd.colors === null ? null : { ...c.captionColors, ...cmd.colors },
+      }));
+
+    case 'ADD_GRAPHIC': {
+      if (cmd.duration <= 0) throw new CommandError('ADD_GRAPHIC: duration must be positive');
+      const clip = makeClip({
+        id: cmd.clipId,
+        kind: 'graphic',
+        start: Math.max(0, cmd.start),
+        duration: cmd.duration,
+        name: cmd.graphic.value.slice(0, 40) || 'Graphic',
+        graphic: cmd.graphic,
+      });
+      return withTrack(seq, cmd.trackId, (t) => ({ ...t, clips: sortClips([...t.clips, clip]) }));
+    }
+
+    case 'SET_GRAPHIC':
+      return withClip(seq, cmd.clipId, (c) =>
+        c.graphic ? { ...c, graphic: { ...c.graphic, ...cmd.graphic } } : c,
+      );
 
     case 'SET_CAPTION_STYLE':
       return withClip(seq, cmd.clipId, (c) => ({ ...c, captionStyle: cmd.style }));

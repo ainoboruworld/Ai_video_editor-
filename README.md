@@ -41,6 +41,8 @@ any of them at any time.
 | Background music with automatic ducking under detected speech | Working, no key needed |
 | B-roll suggested from what the speaker said, added only when you add it | Working (needs a free Pexels or Pixabay key) |
 | Captions built from the final transcript, no second transcription request | Working |
+| Caption colours — text, highlight, outline and box, on top of any preset | Working, no key needed |
+| Infographics drawn on the frame — stats, lists and pull-quotes, suggested from the transcript | Working, no key needed |
 | Export in the browser (canvas + audio → downloadable file) | Working, no external service |
 | Cloud render with Remotion (frame-accurate H.264) | Working, needs a worker host (`RENDER_WORKER_URL`) |
 | Uploads straight to object storage | Working, needs S3-compatible storage |
