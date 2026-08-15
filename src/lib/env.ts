@@ -20,7 +20,10 @@ export const env = {
 
   // AI providers, free tiers first. None of them is required.
   GEMINI_API_KEY: read('GEMINI_API_KEY'),
-  GEMINI_MODEL: read('GEMINI_MODEL') ?? 'gemini-2.0-flash',
+  // Alias rather than a pinned version: Google retires specific model ids
+  // (gemini-2.0-flash and gemini-2.5-flash are both gone), and a hardcoded one
+  // turns into a 404 outage. Pin explicitly with GEMINI_MODEL if you need to.
+  GEMINI_MODEL: read('GEMINI_MODEL') ?? 'gemini-flash-latest',
   GROQ_API_KEY: read('GROQ_API_KEY'),
   GROQ_MODEL: read('GROQ_MODEL') ?? 'llama-3.3-70b-versatile',
   // Groq serves Whisper on its free tier, so automatic captions cost nothing.
