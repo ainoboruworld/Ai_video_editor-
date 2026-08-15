@@ -149,7 +149,9 @@ export function detectFillerCandidates(options: DetectFillerOptions): FillerCand
       const wholeSegment = remaining.replace(/[^a-z0-9]/gi, '').length === 0;
 
       out.push({
-        id: `fill_${segment.id}_${match.charStart}`,
+        // Position in the list, not just in the text: an id that can repeat
+        // would silently merge two candidates wherever they are held by id.
+        id: `fill_${out.length}_${segment.id}_${match.charStart}`,
         segmentId: segment.id,
         word: text.slice(match.charStart, match.charEnd),
         start: timing.start,

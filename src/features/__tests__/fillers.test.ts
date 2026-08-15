@@ -115,3 +115,31 @@ describe('highlightRuns', () => {
     expect(highlightRuns(seg, [])).toEqual([{ text: seg.text, candidate: null }]);
   });
 });
+
+describe('candidate identity', () => {
+  it('gives every candidate its own id, even for repeated text', () => {
+    // A transcript full of one-word "Uh," lines: the shape a real transcription
+    // tool produces, and the one where a positional id would repeat.
+    const segments = Array.from({ length: 8 }, (_, index) => ({
+      id: 's',
+      start: index * 2,
+      end: index * 2 + 1,
+      text: 'Uh,',
+    }));
+    const found = detectFillerCandidates({ segments });
+    expect(found).toHaveLength(8);
+    expect(new Set(found.map((f) => f.id)).size).toBe(8);
+  });
+
+  it('survives accept-all as a keyed record', () => {
+    const segments = [
+      { id: 'a', start: 0, end: 2, text: 'Um, so basically it was, like, different.' },
+      { id: 'a', start: 2, end: 4, text: 'Uh, you know, right?' },
+    ];
+    const found = detectFillerCandidates({ segments });
+    const decisions = Object.fromEntries(found.map((c) => [c.id, true]));
+    // The count the UI shows and the count that gets cut have to be one number.
+    expect(Object.keys(decisions)).toHaveLength(found.length);
+    expect(found.filter((c) => decisions[c.id]).length).toBe(found.length);
+  });
+});
