@@ -1,45 +1,74 @@
-# AI Engine
+# AI and B-roll pipeline
 
-## Principles
+```
+prompt
+  └─► /api/ai/script      → storyboard (hook, scenes, script, on-screen text,
+                            visual description, B-roll queries, CTA)
+        └─► /api/ai/broll  → queries per scene → Pexels / Pixabay / Unsplash
+                             → ranked recommendations (never auto-inserted)
+              └─► user approves → /api/assets/import → project asset
+                    └─► assemble → editor commands → timeline
+                          └─► /api/ai/captions or /api/captions/transcribe
+```
 
-1. **Free-first.** Every AI feature has a local/heuristic implementation that
-   works with zero external services. Ollama (local LLM) is an optional
-   upgrade; paid providers can be added as adapters later.
-2. **AI proposes, the engine executes.** AI output is always structured
-   `EditorCommand[]`, validated with `validateCommands` before it can touch a
-   timeline, previewed to the user, applied through the same command engine
-   as manual edits, and undoable in one step.
+## Providers
 
-## Pipeline features
+`src/lib/ai` exposes one interface with two implementations — `OpenAiProvider`
+and `GeminiProvider` — both forced into JSON mode. Provider choice is
+`AI_PROVIDER`, else the first configured key. Every response is parsed with a zod
+schema (`src/lib/ai/schemas.ts`) before it can touch a project: free-form text
+parsing is not used anywhere.
 
-- **Transcription** — `faster-whisper` locally (word timestamps kept).
-- **Silence detection** — FFmpeg `silencedetect`; sections become
-  `REMOVE_RANGE` proposals.
-- **Filler words** — transcript scan (um/uh/you know/…, with pause and
-  repetition heuristics for ambiguous words like "like"); `REMOVE_RANGE`
-  proposals with padding.
-- **Scene detection** — FFmpeg scene-change scoring (PySceneDetect can be
-  slotted in behind the same job).
-- **Chapters** — transcript segmentation by pauses + duration.
-- **Clip suggestions** — heuristic scorer over sentence-aligned windows:
-  hook signals (questions, numbers, curiosity/contrast phrases), information
-  density, completeness, positional diversity. Scores are recommendation
-  scores, not virality guarantees.
-- **Hooks** — template-based alternatives from segment text; LLM-refined when
-  Ollama is configured.
-- **B-roll opportunities** — keyword extraction from transcript segments,
-  matched against the project's own asset library (plus user uploads); stock
-  provider adapters (Pexels/Pixabay) are optional and never required.
+## Offline draft mode
 
-## AI assistant
+With no AI key, `src/lib/ai/offline.ts` produces a deterministic storyboard: real
+beats (hook → context → proof → detail → payoff → CTA), durations distributed to
+the requested length, and stock queries derived from the subject. It is labelled
+`provider: "offline"` in the API and shown as **draft mode** in the UI. It is a
+structural starting point, not a pretend language model.
 
-`POST /sequences/:id/ai` parses the request into commands:
+## Query generation and ranking
 
-- Rule-based intent parser (always available): remove silence, remove
-  fillers, add captions, caption sizing, speed, aspect ratio, volume…
-- Ollama path (optional): the LLM receives the command schema + a compact
-  sequence summary and must emit JSON commands; output is schema-validated
-  and falls back to rules on any failure.
+A scene's visual description becomes 2–4 search phrases, either from the model or
+derived locally (`deriveQueries`: specific phrase → key tokens → single terms).
+Each query is run against every configured provider in parallel; results are
+merged, de-duplicated and scored by:
 
-The client shows the proposed change list with **Preview / Apply / Cancel**;
-Apply routes through `EditorHistory` so the whole batch is one undo step.
+```
+relevance 46%  ·  framing 28%  ·  duration fit 16%  ·  resolution 10%
+```
+
+Framing is why a 9:16 project surfaces vertical footage first, and duration fit is
+why a 3-second clip ranks below a 12-second one for a 6-second scene. The score
+is shown on each result as a match percentage.
+
+## Auto-fit
+
+When a scene's footage lands on the timeline (`features/broll/assemble.ts`):
+
+- longer than the scene → trimmed;
+- slightly shorter → slowed (never below 0.6×) instead of leaving a gap;
+- much shorter → repeated to cover the scene;
+- images → held for the scene;
+- framing → cover-fit and cropped, never stretched;
+- the scene's transition is applied to the first segment.
+
+Everything stays a normal clip afterwards: trim it, move it, restyle it.
+
+## Captions
+
+Two real routes to captions:
+
+1. **From the script** — `/api/ai/captions` splits narration into timed cues.
+2. **From the audio** — the browser renders the timeline's audio to 16 kHz mono
+   WAV (`features/captions/extractAudio.ts`), posts it to
+   `/api/captions/transcribe`, and the provider returns word-level timings that
+   drive karaoke-style highlighting.
+
+Both produce caption clips on the caption track, editable like any other clip.
+
+## Other AI features
+
+- `/api/ai/suggest` — editing notes on the current timeline (pacing, coverage,
+  captions, levels). Requires a provider; returns 503 with an explanation if none.
+- `/api/ai/titles` — titles, description and hashtags for the finished video.

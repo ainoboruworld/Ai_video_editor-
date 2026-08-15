@@ -1,46 +1,68 @@
 # Setup
 
-## Prerequisites
+## Requirements
 
-- Node.js 22+
-- FFmpeg + FFprobe on PATH (`sudo apt-get install -y ffmpeg` on Debian/Ubuntu)
-- Python 3.10+ (optional — only needed for local transcription)
+- Node.js 20 or newer
+- npm 10 or newer
 
-## Install & run
+## Install and run
 
 ```bash
 npm install
-npm run db:setup        # creates SQLite DB (apps/api/data/dev.db)
-npm run dev             # starts API (:4001) and web (:5173) together
+cp .env.example .env.local
+npm run dev
 ```
 
-Open http://localhost:5173.
+The app runs at http://localhost:3000. With no keys configured it still works:
+projects are saved under `.data/`, uploads under 4 MB go to `.data/storage`,
+prompts produce a labelled structural draft, and export runs in the browser.
 
-## Optional: local transcription (free)
+## Getting the free API keys
+
+| Key | Where | Free tier | Enables |
+| --- | --- | --- | --- |
+| `PEXELS_API_KEY` | https://www.pexels.com/api/ | Yes, generous | Stock video + photo search (primary) |
+| `PIXABAY_API_KEY` | https://pixabay.com/api/docs/ | Yes | Stock video + image fallback |
+| `UNSPLASH_ACCESS_KEY` | https://unsplash.com/developers | Yes (demo tier) | Photo B-roll and stills |
+| `OPENAI_API_KEY` | https://platform.openai.com | Paid | Scripts, storyboards, captions, edit review, transcription |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Free tier | Same AI features, alternative provider |
+
+Start with `PEXELS_API_KEY` — it unlocks the B-roll workflow, which is the part
+of the product that most depends on an external service.
+
+## Optional infrastructure
+
+**Postgres** (`DATABASE_URL`) — projects survive deploys and are shared across
+devices. Tables are created automatically on first use. Without it, the file
+store is used: durable locally, per-instance and short-lived on serverless.
+
+**Object storage** (`STORAGE_URL`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`,
+`STORAGE_SECRET_KEY`, optional `STORAGE_PUBLIC_URL`) — any S3-compatible service.
+The browser uploads straight to the bucket with a presigned URL, so large files
+never pass through a serverless function. Without it, uploads over 4 MB stay in
+the browser tab (usable for the session, gone after a reload — the UI says so).
+
+**Render worker** (`RENDER_WORKER_URL`, `RENDER_WORKER_TOKEN`) — see
+[RENDERING.md](RENDERING.md).
+
+## Checks
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install faster-whisper
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-The API auto-detects it. Model configurable via `WHISPER_MODEL` (default `small`).
-The first transcription downloads the model (~500 MB for `small`).
+## End-to-end smoke test (optional)
 
-## Optional: local LLM (free)
-
-Install [Ollama](https://ollama.com), pull a model (`ollama pull qwen2.5`),
-and set `OLLAMA_URL=http://localhost:11434` (and optionally `OLLAMA_MODEL`)
-in `apps/api/.env`. This upgrades clip titles/hooks and the AI assistant from
-heuristics to a local LLM. Everything still works without it.
-
-## Environment variables
-
-See `apps/api/.env.example`. None are required for the basic editor.
-
-## Tests
+`scripts/smoke-e2e.mjs` drives the whole product flow in a real browser —
+prompt → storyboard → assemble → edit → play → split → undo → export — and fails
+if the export does not produce a file. Playwright is not a project dependency,
+so install it on demand:
 
 ```bash
-npm test                # editor-core engine tests (vitest)
-npm run typecheck       # all workspaces
+npm run build && npm start &
+npm i --no-save playwright && npx playwright install chromium
+node scripts/smoke-e2e.mjs
 ```

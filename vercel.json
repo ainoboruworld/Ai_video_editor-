@@ -1,9 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build --workspace=@ave/editor-core && npm run build --workspace=@ave/web",
-  "outputDirectory": "apps/web/dist",
+  "framework": "nextjs",
+  "buildCommand": "next build",
   "installCommand": "npm install",
-  "rewrites": [
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
-  ]
+  "functions": {
+    "src/app/api/ai/**/*.ts": { "maxDuration": 60 },
+    "src/app/api/captions/**/*.ts": { "maxDuration": 60 },
+    "src/app/api/media/**/*.ts": { "maxDuration": 30 }
+  }
 }

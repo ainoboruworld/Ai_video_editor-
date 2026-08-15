@@ -1,53 +1,73 @@
-# Editor Engine (`@ave/editor-core`)
+# Editor engine
 
-Pure TypeScript. No React, no DOM, no Node APIs. This is deliberate: the same
-engine executes manual edits in the browser and AI edits validated on the
-server, and it is trivially unit-testable.
+`src/lib/engine` is the editing core: pure TypeScript, no React, no DOM, no Node
+APIs. It is the only place that knows how a timeline changes, which is why the
+same code path serves the UI, keyboard shortcuts, AI assembly and validation.
 
-## Model
+## Document model
 
-- `Sequence` — width/height/fps/aspect, `Track[]`, `Marker[]`
-- `Track` — kind (`video | audio | text | caption`), `Clip[]`, lock/visible/mute/solo
-- `Clip` — timeline `start`/`duration`, source mapping (`sourceIn`, `speed`),
-  audio (volume/fades), `Transform`, `Crop`, `Filters`, keyframes, transitions,
-  text/caption payloads, B-roll mode.
+```ts
+Project {
+  id, ownerId, name, aspect, width, height, fps,
+  sequence: Sequence,      // tracks and clips
+  assets: Asset[],         // media library with licence/attribution
+  storyboard: Storyboard | null,
+  settings, createdAt, updatedAt, version
+}
 
-Time is in seconds. Source consumed by a clip = `duration * speed`.
+Sequence { id, name, width, height, fps, aspect, tracks: Track[], markers: Marker[] }
+
+Track  { id, kind: 'video'|'audio'|'text'|'caption',
+         role: 'video'|'broll'|'overlay'|'text'|'caption'|'audio'|'music'|'voiceover',
+         name, clips: Clip[], locked, visible, muted, solo }
+
+Clip   { id, kind, name, assetId, start, duration, sourceIn, speed,
+         volume, muted, fadeIn, fadeOut,
+         transform, crop, filters, keyframes,
+         transitionIn, transitionOut,
+         text, textStyle, textAnimation, captionStyle, captionWords, brollMode }
+```
+
+`kind` drives behaviour (how a clip plays and composites); `role` drives track
+routing and the timeline UI, so "put this B-roll on the B-roll track" is a data
+lookup rather than a hard-coded index.
 
 ## Commands
 
-All mutations are `EditorCommand` objects (see `commands.ts`), e.g.
-`ADD_CLIP`, `TRIM_CLIP`, `SPLIT_CLIP`, `REMOVE_RANGE` (ripple or lift),
-`CHANGE_SPEED`, `ADD_CAPTION`, `ADD_BROLL`, `CHANGE_ASPECT_RATIO`,
-`SET_KEYFRAMES`, …
+Every mutation is a serialisable command applied by `applyCommand`:
 
-`applyCommand(seq, cmd)` is a pure function returning a new structurally
-shared `Sequence`. Notable semantics:
+```
+ADD_CLIP  DELETE_CLIP  MOVE_CLIP  TRIM_CLIP  SPLIT_CLIP  REMOVE_RANGE
+DUPLICATE_CLIP  CHANGE_SPEED  CHANGE_VOLUME  SET_FADE  CHANGE_TRANSFORM
+SET_FILTERS  SET_CROP  SET_TEXT  ADD_TEXT  ADD_CAPTION  SET_CAPTION_STYLE
+ADD_BROLL  ADD_TRANSITION  SET_BROLL_MODE  RENAME_CLIP  CHANGE_ASPECT_RATIO
+SET_KEYFRAMES  SET_TRACK_STATE  ADD_MARKER  DELETE_MARKER  RENAME_SEQUENCE
+```
 
-- **TRIM_CLIP** — moving the left edge adjusts `sourceIn` by `delta * speed`.
-- **SPLIT_CLIP** — preserves source mapping, splits keyframes and caption
-  words across both halves.
-- **REMOVE_RANGE** — removes a timeline interval across tracks; with
-  `ripple: true` downstream clips shift left. Spanning clips are split.
-  This one command implements silence removal, filler removal, and
-  transcript-based deletion.
-- **CHANGE_SPEED** — keeps the source range fixed and rescales duration.
+Sequences are immutable and structurally shared, so `EditorHistory` can snapshot
+before each command cheaply. Undo/redo therefore covers AI batch edits (a whole
+storyboard assembly is one entry) exactly as it covers a single drag.
 
-## History
+`validateCommand` checks untrusted commands (ids exist, numbers finite, ranges
+sane) before they reach the engine — model output is never executed directly.
 
-`EditorHistory` records snapshot undo entries (cheap — sequences are
-immutable and structurally shared). `apply(seq, commands, label)` executes a
-batch atomically with one undo entry, which is how multi-command AI edits
-stay recoverable with a single Ctrl+Z.
+## Editing operations
 
-## Validation
+`src/features/timeline/operations.ts` composes commands into the operations the
+UI exposes: split at playhead, delete/duplicate selection, add media to the right
+track at the next free slot, add text, and snapping (clip edges, markers,
+playhead, within a pixel threshold that scales with zoom).
 
-`validateCommand(s)` checks untrusted (AI-produced) commands against the
-actual sequence — unknown types, dangling clip/track ids, non-finite numbers,
-inverted ranges — before they reach the engine.
+## Playback
 
-## Snapping & keyframes
+`src/features/timeline/playback.ts` owns the clock. Each frame it seeks every
+active media element to `sourceIn + local × speed`, re-seeking only past a drift
+tolerance, applies the audio mix through per-clip gain nodes, and paints the
+frame with the compositor.
 
-`snapTargets`/`snapTime` implement snapping to clip boundaries, markers,
-playhead and sequence bounds. `interpolate` performs linear keyframe
-interpolation (easing can be added behind the same signature).
+## Persistence
+
+The editor autosaves (debounced) to `PUT /api/projects/:id`, writing a
+localStorage snapshot first. If the tab crashes, the server is unreachable, or
+the deployment uses an ephemeral store, the newer local snapshot is restored on
+next load. Saves carry a `version` for optimistic concurrency across tabs.
