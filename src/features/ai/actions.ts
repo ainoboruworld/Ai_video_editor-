@@ -25,6 +25,7 @@ export async function generateStoryboard(input: {
   durationSeconds: number;
   tone?: string;
   sceneCount?: number;
+  provider?: string;
 }): Promise<void> {
   const state = useEditorStore.getState();
   const { storyboard } = await api.generateScript({
@@ -33,6 +34,7 @@ export async function generateStoryboard(input: {
     aspect: state.aspect as AspectRatio,
     tone: input.tone,
     sceneCount: input.sceneCount,
+    provider: input.provider,
   });
   state.setStoryboard(storyboard);
   useEditorStore.getState().setStoryboardOpen(true);

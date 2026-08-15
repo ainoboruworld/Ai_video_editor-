@@ -21,6 +21,8 @@ import {
 import { useStoryboardStore } from '@/state/storyboardStore';
 import { api, ApiClientError } from '@/lib/api-client';
 import { Badge, Button, Field, Input, PanelHeader, Select, Textarea } from '@/components/ui';
+import { ProviderPicker } from '@/components/editor/ProviderPicker';
+import type { AiProviderName } from '@/types';
 import { toast } from '@/state/toastStore';
 
 const TONES = ['punchy', 'warm', 'informative', 'cinematic', 'playful', 'premium'];
@@ -37,6 +39,7 @@ export function AIPanel({ initialPrompt, initialDuration }: { initialPrompt?: st
   const [tone, setTone] = useState('punchy');
   const [sceneCount, setSceneCount] = useState<number | ''>('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AiProviderName | 'auto'>('auto');
   const [suggestions, setSuggestions] = useState<{ title: string; detail: string; severity: string }[]>([]);
   const [titles, setTitles] = useState<{ titles: string[]; description: string; hashtags: string[] } | null>(null);
 
@@ -122,6 +125,8 @@ export function AIPanel({ initialPrompt, initialDuration }: { initialPrompt?: st
           </Field>
         </div>
 
+        <ProviderPicker value={provider} onChange={setProvider} className="mt-2 w-full" />
+
         <Button
           className="mt-3 w-full"
           variant="primary"
@@ -135,6 +140,7 @@ export function AIPanel({ initialPrompt, initialDuration }: { initialPrompt?: st
                 durationSeconds: duration,
                 tone,
                 sceneCount: sceneCount === '' ? undefined : sceneCount,
+                provider: provider === 'auto' ? undefined : provider,
               }),
             )
           }

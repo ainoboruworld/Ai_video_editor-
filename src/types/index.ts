@@ -173,7 +173,15 @@ export interface MediaSearchResponse {
 
 // ------------------------------------------------------------------- AI ----
 
-export type AiProviderName = 'gemini' | 'groq' | 'openrouter' | 'openai' | 'offline';
+export type AiProviderName =
+  | 'groq'
+  | 'openrouter'
+  | 'cloudflare'
+  | 'huggingface'
+  | 'ollama'
+  | 'gemini'
+  | 'openai'
+  | 'offline';
 
 export interface ScriptRequest {
   prompt: string;
@@ -185,11 +193,17 @@ export interface ScriptRequest {
 }
 
 export interface AiCapabilities {
-  ai: { available: boolean; providers: AiProviderName[]; active: AiProviderName };
+  ai: {
+    available: boolean;
+    providers: AiProviderName[];
+    active: AiProviderName;
+    /** Every provider the build knows about, with whether it is configured. */
+    catalog: { name: AiProviderName; label: string; configured: boolean }[];
+  };
   stock: { pexels: boolean; pixabay: boolean; unsplash: boolean };
   storage: { available: boolean; driver: string; directUpload: boolean };
   database: { driver: string; durable: boolean };
-  transcription: { available: boolean; provider: string | null };
+  transcription: { available: boolean; provider: string | null; providers: string[] };
   rendering: { browser: boolean; cloud: boolean; worker: string | null };
 }
 

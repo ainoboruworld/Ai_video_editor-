@@ -5,6 +5,9 @@ import type { AiProviderName, ScriptRequest, Storyboard, StoryboardScene } from 
 import { GeminiProvider } from './gemini';
 import { GroqProvider } from './groq';
 import { OpenRouterProvider } from './openrouter';
+import { CloudflareProvider } from './cloudflare';
+import { HuggingFaceProvider } from './huggingface';
+import { OllamaProvider } from './ollama';
 import { offlineCaptionCues, offlineStoryboard } from './offline';
 import {
   BROLL_SCHEMA_HINT,
@@ -45,9 +48,37 @@ export { offlineCaptionCues, offlineStoryboard } from './offline';
 const providers: AiProvider[] = [
   new GroqProvider(),
   new OpenRouterProvider(),
+  new CloudflareProvider(),
+  new HuggingFaceProvider(),
+  new OllamaProvider(),
   new GeminiProvider(),
   new OpenAiProvider(),
 ];
+
+/** Every provider with its configuration state, for the UI's provider picker. */
+export function providerCatalog(): { name: AiProviderName; label: string; configured: boolean }[] {
+  return providers.map((provider) => ({
+    name: provider.name,
+    label: provider.label,
+    configured: provider.isConfigured(),
+  }));
+}
+
+/**
+ * Resolves an explicitly requested provider.
+ *
+ * Requests may name a provider so the user can pick per task in the UI. An
+ * unconfigured or unknown name falls back to the normal free-first order
+ * rather than failing — the request should still produce something.
+ */
+export function resolveProvider(requested?: AiProviderName | null): AiProvider | null {
+  if (requested && requested !== 'offline') {
+    const match = providers.find((provider) => provider.name === requested);
+    if (match?.isConfigured()) return match;
+  }
+  if (requested === 'offline') return null;
+  return activeProvider();
+}
 
 export function availableProviders(): AiProviderName[] {
   return providers.filter((p) => p.isConfigured()).map((p) => p.name);
@@ -95,8 +126,8 @@ export function describeAiError(error: unknown): string {
   return error.message;
 }
 
-export async function generateStoryboard(request: ScriptRequest): Promise<Storyboard> {
-  const provider = activeProvider();
+export async function generateStoryboard(request: ScriptRequest & { provider?: AiProviderName }): Promise<Storyboard> {
+  const provider = resolveProvider(request.provider);
   let payload = null as ReturnType<typeof storyboardSchema.parse> | null;
   let usedProvider: AiProviderName = 'offline';
   let warning: string | null = null;

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { activeProviderName, availableProviders } from '@/lib/ai';
-import { activeTranscriptionProvider } from '@/lib/ai/transcribe';
+import { activeProviderName, availableProviders, providerCatalog } from '@/lib/ai';
+import { activeTranscriptionProvider, availableTranscriptionProviders } from '@/lib/ai/transcribe';
 import { getSession, withSessionCookie } from '@/lib/auth/session';
 import { databaseInfo } from '@/lib/database';
 import { env } from '@/lib/env';
@@ -29,6 +29,7 @@ export async function GET(): Promise<NextResponse> {
         available: availableProviders().length > 0,
         providers: availableProviders(),
         active: activeProviderName(),
+        catalog: providerCatalog(),
       },
       stock: {
         pexels: stock.includes('pexels'),
@@ -41,7 +42,11 @@ export async function GET(): Promise<NextResponse> {
         directUpload: storage.directUpload,
       },
       database: databaseInfo(),
-      transcription: { available: Boolean(transcription), provider: transcription?.name ?? null },
+      transcription: {
+        available: Boolean(transcription),
+        provider: transcription?.name ?? null,
+        providers: availableTranscriptionProviders(),
+      },
       rendering: {
         browser: true,
         cloud: Boolean(env.RENDER_WORKER_URL),

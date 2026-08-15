@@ -2,6 +2,8 @@ import 'server-only';
 import { z } from 'zod';
 import { env } from '@/lib/env';
 import { GROQ_BASE } from './groq';
+import { cloudflareBase } from './cloudflare';
+import { HF_BASE } from './huggingface';
 import { extractJson } from './types';
 import { ApiError, fetchWithRetry } from '@/lib/http';
 import type { CaptionCue } from '@/types';
@@ -114,6 +116,35 @@ export class GroqTranscription extends WhisperCompatibleTranscription {
   }
   protected get model() {
     return env.GROQ_TRANSCRIBE_MODEL;
+  }
+}
+
+/** Cloudflare Workers AI Whisper — free daily allowance, no card. */
+export class CloudflareTranscription extends WhisperCompatibleTranscription {
+  readonly name = 'cloudflare-whisper';
+  protected get baseUrl() {
+    // Cloudflare exposes an OpenAI-compatible surface for audio models.
+    return `${cloudflareBase() ?? ''}/${env.CLOUDFLARE_TRANSCRIBE_MODEL}/v1`;
+  }
+  protected get apiKey() {
+    return cloudflareBase() ? env.CLOUDFLARE_API_TOKEN : null;
+  }
+  protected get model() {
+    return env.CLOUDFLARE_TRANSCRIBE_MODEL;
+  }
+}
+
+/** Hugging Face Inference Whisper — free tier. */
+export class HuggingFaceTranscription extends WhisperCompatibleTranscription {
+  readonly name = 'huggingface-whisper';
+  protected get baseUrl() {
+    return HF_BASE;
+  }
+  protected get apiKey() {
+    return env.HF_TOKEN;
+  }
+  protected get model() {
+    return env.HF_TRANSCRIBE_MODEL;
   }
 }
 
@@ -245,13 +276,26 @@ function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64');
 }
 
-// Whisper-compatible providers first (word-level timings), Gemini as the
-// fallback that keeps a Gemini-only setup fully functional.
+/**
+ * Whisper backends first: they give word-level timings and are billed per
+ * audio second, so long recordings stay cheap. Gemini is last because its audio
+ * is billed as tokens from the same small allowance the script calls use.
+ *
+ * Note that none of these is required — the Auto-edit panel can run Whisper in
+ * the browser with no provider at all.
+ */
 const transcriptionProviders: TranscriptionProvider[] = [
   new GroqTranscription(),
+  new CloudflareTranscription(),
+  new HuggingFaceTranscription(),
   new OpenAiTranscription(),
   new GeminiTranscription(),
 ];
+
+/** All transcription providers that are configured right now. */
+export function availableTranscriptionProviders(): string[] {
+  return transcriptionProviders.filter((provider) => provider.isConfigured()).map((provider) => provider.name);
+}
 
 export function activeTranscriptionProvider(): TranscriptionProvider | null {
   return transcriptionProviders.find((p) => p.isConfigured()) ?? null;

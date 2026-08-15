@@ -135,6 +135,7 @@ export const api = {
     aspect: AspectRatio;
     tone?: string;
     sceneCount?: number;
+    provider?: string;
   }) => request<{ storyboard: Storyboard }>('/api/ai/script', post(input)),
 
   findBroll: (input: {
@@ -154,6 +155,7 @@ export const api = {
     durationSeconds: number;
     targetSeconds?: number;
     goal?: string;
+    provider?: string;
     cues: { start: number; end: number; text: string }[];
   }) =>
     request<{
