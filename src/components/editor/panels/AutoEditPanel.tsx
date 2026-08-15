@@ -236,6 +236,15 @@ export function AutoEditPanel() {
 
             {/* Step 2 — needs transcription */}
             <Step number={2} title="Transcript" note={transcriptionReady ? capabilities?.transcription.provider ?? 'ready' : 'Needs an AI key'}>
+              {transcriptionReady &&
+              capabilities?.transcription.provider === 'gemini-audio' &&
+              duration > 240 ? (
+                <p className="mb-1.5 rounded border border-warn/25 bg-warn/5 px-2 py-1.5 text-2xs leading-relaxed text-warn">
+                  This is a {clock(duration)} recording. Gemini bills audio by length and its free tier is small — a
+                  free <code className="font-mono">GROQ_API_KEY</code> transcribes long recordings without eating your
+                  Gemini quota, which the AI recut also needs.
+                </p>
+              ) : null}
               <Button
                 size="sm"
                 className="w-full justify-start"

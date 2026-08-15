@@ -32,6 +32,7 @@ import { OpenAiProvider } from './openai';
 import type { AiProvider } from './types';
 
 export { AiError } from './types';
+import { AiError as AiErrorType } from './types';
 export { offlineCaptionCues, offlineStoryboard } from './offline';
 
 /**
@@ -71,6 +72,21 @@ function sceneId(index: number): string {
  * response; if the provider fails we degrade to the offline draft rather than
  * leaving the user with nothing, and say so in `provider`.
  */
+/** Human-readable reason for an AI provider failure, for surfacing to the user. */
+export function describeAiError(error: unknown): string {
+  if (!(error instanceof AiErrorType)) {
+    return error instanceof Error ? error.message : 'The AI request failed.';
+  }
+  const quota = /quota|billing|exceeded your current/i.test(error.message);
+  if (error.status === 429 && quota) {
+    return `${error.provider} free-tier quota is used up for now. Add another free key (GROQ_API_KEY or GEMINI_API_KEY) or wait for the quota to reset.`;
+  }
+  if (error.status === 429) return `${error.provider} is rate limiting requests. Wait a moment and try again.`;
+  if (error.status === 401 || error.status === 403) return `${error.provider} rejected the API key.`;
+  if (error.status === 503) return `${error.provider} is busy right now. Try again shortly.`;
+  return error.message;
+}
+
 export async function generateStoryboard(request: ScriptRequest): Promise<Storyboard> {
   const provider = activeProvider();
   let payload = null as ReturnType<typeof storyboardSchema.parse> | null;

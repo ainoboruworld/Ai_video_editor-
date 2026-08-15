@@ -88,6 +88,11 @@ export async function fetchWithRetry(
       const response = await fetchWithTimeout(url, init, options.timeoutMs);
       if (!RETRYABLE.has(response.status) || attempt === attempts) return response;
 
+      // A 429 has two very different meanings. A short rate limit is worth
+      // waiting out; an exhausted daily quota is not — retrying just burns more
+      // of the user's allowance and delays a failure that will not change.
+      if (response.status === 429 && (await isQuotaExhausted(response))) return response;
+
       const retryAfter = Number(response.headers.get('retry-after'));
       const backoff = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 400 * 2 ** (attempt - 1);
       await delay(Math.min(4000, backoff));
@@ -100,6 +105,17 @@ export async function fetchWithRetry(
   }
 
   throw lastError ?? new ApiError(502, 'Upstream request failed', 'upstream_error');
+}
+
+/** Peeks at a 429 body to tell an exhausted quota from a transient rate limit. */
+async function isQuotaExhausted(response: Response): Promise<boolean> {
+  if (response.headers.get('retry-after')) return false;
+  try {
+    const body = await response.clone().text();
+    return /quota|billing|exceeded your current/i.test(body);
+  } catch {
+    return false;
+  }
 }
 
 function delay(ms: number): Promise<void> {

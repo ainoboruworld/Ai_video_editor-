@@ -35,6 +35,22 @@ of the product that most depends on an external service. Then add
 Provider preference is free-first: Gemini, then Groq, then OpenAI. `AI_PROVIDER`
 forces a specific one.
 
+### Which free key for which job
+
+Gemini and Groq both cover scripts, storyboards and edit planning, and either is
+enough on its own. They differ for **transcription**:
+
+- **Groq** runs Whisper, is billed per audio second, and handles long recordings
+  comfortably. It also returns word-level timings, which is what karaoke-style
+  captions need.
+- **Gemini** transcribes audio as tokens. It works, and it keeps a Gemini-only
+  setup functional, but a long recording consumes a large share of a small free
+  quota — and that quota is shared with the script and edit-planning calls.
+
+If you plan to auto-edit recordings longer than a few minutes, set both:
+`GEMINI_API_KEY` for the reasoning and `GROQ_API_KEY` for the audio. The app
+already prefers Groq for transcription whenever it is configured.
+
 ## Optional infrastructure
 
 **Postgres** (`DATABASE_URL`) — projects survive deploys and are shared across
