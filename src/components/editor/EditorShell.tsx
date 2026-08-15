@@ -21,6 +21,7 @@ import { TextPanel } from './panels/TextPanel';
 import { AudioPanel } from './panels/AudioPanel';
 import { AIPanel } from './panels/AIPanel';
 import { AutoEditPanel } from './panels/AutoEditPanel';
+import { TranscriptPanel } from './panels/TranscriptPanel';
 import { EffectsPanel } from './panels/EffectsPanel';
 import { TransitionsPanel } from './panels/TransitionsPanel';
 import { CaptionsPanel } from './panels/CaptionsPanel';
@@ -46,7 +47,15 @@ export function EditorShell({
   const loadError = useEditorStore((state) => state.loadError);
   const setCapabilities = useEditorStore((state) => state.setCapabilities);
 
-  const [rail, setRail] = useState<RailId>(initialPanel ?? (initialPrompt ? 'ai' : 'media'));
+  // The rail lives in the store so one panel can send the user to another.
+  const rail = useEditorStore((state) => state.activePanel);
+  const setRail = useEditorStore((state) => state.setPanel);
+  const [railInitialised, setRailInitialised] = useState(false);
+  useEffect(() => {
+    if (railInitialised) return;
+    setRailInitialised(true);
+    setRail(initialPanel ?? (initialPrompt ? 'ai' : 'media'));
+  }, [railInitialised, initialPanel, initialPrompt, setRail]);
   const [exportOpen, setExportOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
 
@@ -108,6 +117,7 @@ export function EditorShell({
             {rail === 'broll' ? <BrollPanel /> : null}
             {rail === 'ai' ? <AIPanel initialPrompt={initialPrompt} initialDuration={initialDuration} /> : null}
             {rail === 'autoedit' ? <AutoEditPanel /> : null}
+            {rail === 'transcript' ? <TranscriptPanel /> : null}
             {rail === 'text' ? <TextPanel /> : null}
             {rail === 'captions' ? <CaptionsPanel /> : null}
             {rail === 'audio' ? <AudioPanel /> : null}

@@ -20,12 +20,22 @@ import {
   type Track,
 } from '@/lib/engine';
 import { api, ApiClientError } from '@/lib/api-client';
-import type { AiCapabilities, Asset, Project, Storyboard, StoryboardScene } from '@/types';
+import type { AiCapabilities, Asset, Project, StoredTranscript, Storyboard, StoryboardScene } from '@/types';
 import { toast } from './toastStore';
 import { loadSnapshot, saveSnapshot } from '@/features/projects/localSnapshot';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
-export type PanelId = 'media' | 'broll' | 'text' | 'audio' | 'ai' | 'effects' | 'transitions';
+export type PanelId =
+  | 'media'
+  | 'broll'
+  | 'text'
+  | 'captions'
+  | 'transcript'
+  | 'audio'
+  | 'ai'
+  | 'autoedit'
+  | 'effects'
+  | 'transitions';
 
 interface EditorState {
   loaded: boolean;
@@ -38,6 +48,7 @@ interface EditorState {
   sequence: Sequence | null;
   assets: Asset[];
   storyboard: Storyboard | null;
+  transcript: StoredTranscript | null;
   capabilities: AiCapabilities | null;
 
   history: EditorHistory;
@@ -73,6 +84,7 @@ interface EditorState {
   addAsset: (asset: Asset) => void;
   removeAsset: (assetId: string) => void;
   setStoryboard: (storyboard: Storyboard | null) => void;
+  setTranscript: (transcript: StoredTranscript | null) => void;
   updateScene: (sceneId: string, patch: Partial<StoryboardScene>) => void;
   removeScene: (sceneId: string) => void;
   duplicateScene: (sceneId: string) => void;
@@ -92,6 +104,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sequence: null,
   assets: [],
   storyboard: null,
+  transcript: null,
   capabilities: null,
 
   history: new EditorHistory(),
@@ -226,6 +239,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     scheduleSave(get, set);
   },
 
+  setTranscript: (transcript) => {
+    set({ transcript, saveStatus: 'dirty' });
+    scheduleSave(get, set);
+  },
+
   updateScene: (sceneId, patch) => {
     set((state) => {
       if (!state.storyboard) return {};
@@ -290,6 +308,7 @@ function hydrate(set: Setter, project: Project, version: number): void {
     sequence: project.sequence,
     assets: project.assets,
     storyboard: project.storyboard,
+    transcript: project.transcript ?? null,
     version,
     history: new EditorHistory(),
     historyTick: 0,
@@ -324,6 +343,7 @@ export function serializeProject(state: EditorState): Project | null {
     sequence: state.sequence,
     assets: state.assets,
     storyboard: state.storyboard,
+    transcript: state.transcript,
     settings: {
       brollProviders: ['pexels', 'pixabay', 'unsplash'],
       captionStyle: 'bold',
@@ -353,6 +373,7 @@ async function persist(get: () => EditorState, set: Setter): Promise<void> {
       sequence: document.sequence,
       assets: document.assets,
       storyboard: document.storyboard,
+      transcript: document.transcript,
       version: state.version,
     });
     set({ version: project.version, saveStatus: 'saved', saveError: null });

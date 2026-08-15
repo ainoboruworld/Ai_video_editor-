@@ -91,6 +91,21 @@ export interface ProjectSettings {
   voiceoverVolume: number;
 }
 
+/** A transcript segment as stored on the project. */
+export interface StoredTranscriptSegment {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface StoredTranscript {
+  segments: StoredTranscriptSegment[];
+  source: 'local' | 'hosted' | 'manual';
+  estimatedTimings: boolean;
+  createdAt: string;
+}
+
 export interface Project {
   id: string;
   ownerId: string;
@@ -102,6 +117,8 @@ export interface Project {
   sequence: Sequence;
   assets: Asset[];
   storyboard: Storyboard | null;
+  /** Whatever transcript the project has, from any source. */
+  transcript: StoredTranscript | null;
   settings: ProjectSettings;
   createdAt: string;
   updatedAt: string;
