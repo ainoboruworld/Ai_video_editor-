@@ -7,12 +7,23 @@
  */
 import { interpolate, sequenceDuration, type Clip, type Sequence } from '@/lib/engine';
 import type { Asset } from '@/types';
-import { MediaPool, type PooledElement } from '@/features/media/mediaPool';
+import { MAX_SLOTS, MediaPool, type PooledElement } from '@/features/media/mediaPool';
 import { audibleClips, drawFrame, visibleLayers, type DrawableSource } from './compositor';
 
 /** Above this drift (seconds) we re-seek instead of letting the element catch up. */
 const SYNC_TOLERANCE = 0.28;
 const SEEK_TOLERANCE = 0.06;
+/**
+ * How far ahead a clip's element is woken up and pointed at its first frame.
+ *
+ * A cut makes the picture jump to a different part of the file, and a <video>
+ * asked for a new position mid-playback shows nothing until it has decoded —
+ * which used to blank the canvas for a quarter of a second at every join. This
+ * gets the seek out of the way before the playhead arrives.
+ */
+const PREROLL_SECONDS = 0.7;
+/** Snapshot cadence for the held-frame cache: often enough to be current. */
+const SNAPSHOT_EVERY_MS = 90;
 
 export interface PlaybackOptions {
   onTimeUpdate: (time: number) => void;
@@ -21,6 +32,17 @@ export interface PlaybackOptions {
 
 export class PlaybackEngine {
   readonly pool = new MediaPool();
+  /** clip id → media element slot. See assignSlots. */
+  private slots = new Map<string, number>();
+  /**
+   * The last frame each element was known to be showing.
+   *
+   * While an element is seeking it has no frame to give — some builds hand back
+   * a black one — so the compositor is given this instead. Holding the previous
+   * picture for two or three frames is invisible; dropping to black is the most
+   * visible thing in the whole edit.
+   */
+  private heldFrames = new Map<string, { canvas: HTMLCanvasElement; at: number }>();
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private sequence: Sequence | null = null;
@@ -57,6 +79,7 @@ export class PlaybackEngine {
   update(sequence: Sequence, assets: Asset[]): void {
     this.sequence = sequence;
     this.assets = new Map(assets.map((asset) => [asset.id, asset]));
+    this.assignSlots(sequence);
     this.pool.retain(assets);
     if (this.canvas && (this.canvas.width !== sequence.width || this.canvas.height !== sequence.height)) {
       this.canvas.width = sequence.width;
@@ -138,6 +161,40 @@ export class PlaybackEngine {
     this.raf = requestAnimationFrame(this.loop);
   };
 
+  /**
+   * Which element each clip plays through.
+   *
+   * Clips of the same asset alternate between two elements in track order, so
+   * any two neighbours — the only pair a dissolve can overlap — always hold
+   * different elements. Assigned per sequence rather than per frame: a clip
+   * that changed element as an overlap began would re-seek and stutter at
+   * exactly the moment it needs to be smooth.
+   */
+  private slotFor(clip: Clip): number {
+    return this.slots.get(clip.id) ?? 0;
+  }
+
+  private assignSlots(seq: Sequence): void {
+    const slots = new Map<string, number>();
+    for (const track of seq.tracks) {
+      const seen = new Map<string, number>();
+      for (const clip of track.clips) {
+        if (!clip.assetId) continue;
+        const index = seen.get(clip.assetId) ?? 0;
+        seen.set(clip.assetId, index + 1);
+        slots.set(clip.id, index % MAX_SLOTS);
+      }
+    }
+    this.slots = slots;
+
+    for (const [clipId, slot] of slots) {
+      if (slot === 0) continue;
+      const clip = seq.tracks.flatMap((track) => track.clips).find((c) => c.id === clipId);
+      const asset = clip?.assetId ? this.assets.get(clip.assetId) : undefined;
+      if (asset) this.pool.acquire(asset, slot);
+    }
+  }
+
   /** Aligns every media element with the playhead and applies the audio mix. */
   private syncElements(forceSeek: boolean): void {
     const seq = this.sequence;
@@ -152,8 +209,9 @@ export class PlaybackEngine {
       if (!clip.assetId) continue;
       const asset = this.assets.get(clip.assetId);
       if (!asset) continue;
-      const entry = this.pool.get(asset.id) ?? this.pool.acquire(asset);
-      active.add(asset.id);
+      const slot = this.slotFor(clip);
+      const entry = this.pool.get(asset.id, slot) ?? this.pool.acquire(asset, slot);
+      active.add(MediaPool.key(asset.id, slot));
       const element = entry.element;
       if (!(element instanceof HTMLMediaElement)) continue;
 
@@ -172,7 +230,7 @@ export class PlaybackEngine {
       // Audio mix
       const trackForClip = audibleIds.get(clip.id);
       const gainValue = trackForClip ? this.clipGain(clip, localTime) : 0;
-      const gain = gainValue > 0 ? this.pool.gainFor(asset.id) : this.pool.get(asset.id)?.gain ?? null;
+      const gain = gainValue > 0 ? this.pool.gainFor(asset.id, slot) : this.pool.get(asset.id, slot)?.gain ?? null;
       if (gain) {
         gain.gain.value = gainValue;
       } else {
@@ -187,11 +245,13 @@ export class PlaybackEngine {
       }
     }
 
-    // Anything not under the playhead must not keep playing.
-    for (const [assetId] of this.assets) {
-      if (active.has(assetId)) continue;
-      const entry = this.pool.get(assetId);
-      const element = entry?.element as PooledElement | undefined;
+    this.preroll(seq, active);
+
+    // Anything not under the playhead must not keep playing — including the
+    // second element of an asset once its overlap is over.
+    for (const key of this.pool.activeKeys()) {
+      if (active.has(key)) continue;
+      const element = this.pool.entryByKey(key)?.element as PooledElement | undefined;
       if (element instanceof HTMLMediaElement && !element.paused) element.pause();
     }
   }
@@ -208,13 +268,70 @@ export class PlaybackEngine {
 
   private resolve = (clip: Clip): DrawableSource | null => {
     if (!clip.assetId) return null;
-    const entry = this.pool.get(clip.assetId);
-    if (!entry || !entry.ready) return null;
-    const element = entry.element;
-    if (element instanceof HTMLImageElement) return element;
-    if (element instanceof HTMLVideoElement) return element;
-    return null;
+    const key = MediaPool.key(clip.assetId, this.slotFor(clip));
+    const entry = this.pool.get(clip.assetId, this.slotFor(clip));
+    const element = entry?.element;
+    if (element instanceof HTMLImageElement) return entry?.ready ? element : null;
+    if (!(element instanceof HTMLVideoElement)) return null;
+
+    // HAVE_CURRENT_DATA and not mid-seek: this frame is real, so it can be both
+    // drawn and remembered.
+    const live = entry?.ready && !element.seeking && element.readyState >= 2 && element.videoWidth > 0;
+    if (live) {
+      this.snapshot(key, element);
+      return element;
+    }
+    return this.heldFrames.get(key)?.canvas ?? null;
   };
+
+  /** Keeps a copy of the current frame, throttled — it only has to be recent. */
+  private snapshot(key: string, element: HTMLVideoElement): void {
+    const now = performance.now();
+    const held = this.heldFrames.get(key);
+    if (held && now - held.at < SNAPSHOT_EVERY_MS) return;
+
+    const canvas = held?.canvas ?? document.createElement('canvas');
+    if (canvas.width !== element.videoWidth || canvas.height !== element.videoHeight) {
+      canvas.width = element.videoWidth;
+      canvas.height = element.videoHeight;
+    }
+    try {
+      canvas.getContext('2d')?.drawImage(element, 0, 0);
+      this.heldFrames.set(key, { canvas, at: now });
+    } catch {
+      // Not decodable this tick; the previous held frame stays valid.
+    }
+  }
+
+  /**
+   * Points the elements of clips that are about to start at their first frame,
+   * so the decode happens before the cut rather than on it.
+   */
+  private preroll(seq: Sequence, active: Set<string>): void {
+    for (const track of seq.tracks) {
+      if (track.kind !== 'video' && track.kind !== 'audio') continue;
+      for (const clip of track.clips) {
+        if (!clip.assetId) continue;
+        const lead = clip.start - this.time;
+        if (lead <= 0 || lead > PREROLL_SECONDS) continue;
+
+        const slot = this.slotFor(clip);
+        if (active.has(MediaPool.key(clip.assetId, slot))) continue;
+        const asset = this.assets.get(clip.assetId);
+        if (!asset) continue;
+
+        const element = (this.pool.get(clip.assetId, slot) ?? this.pool.acquire(asset, slot)).element;
+        if (!(element instanceof HTMLMediaElement)) continue;
+        if (element.seeking) continue;
+        if (Math.abs(element.currentTime - clip.sourceIn) < SEEK_TOLERANCE) continue;
+        try {
+          element.currentTime = Math.max(0, clip.sourceIn);
+        } catch {
+          // Metadata is not there yet; tried again on the next tick.
+        }
+      }
+    }
+  }
 
   paint(): void {
     const seq = this.sequence;

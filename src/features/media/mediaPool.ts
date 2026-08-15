@@ -1,9 +1,17 @@
 /**
  * Media element pool.
  *
- * One <video>/<audio>/<img> element per asset, reused across clips, kept out of
- * the DOM tree the user sees. The pool owns readiness, seeking and the Web Audio
- * graph so the canvas compositor can stay a pure drawing routine.
+ * Media elements are kept out of the DOM tree the user sees, and the pool owns
+ * readiness, seeking and the Web Audio graph so the canvas compositor can stay
+ * a pure drawing routine.
+ *
+ * Elements are keyed by asset *and slot* rather than by asset alone. A cross-
+ * dissolve between two cuts of the same recording needs two frames of one file
+ * on screen at the same time, and a single element can only be at one
+ * timestamp — with one element per asset the two clips fought over
+ * `currentTime` and the dissolve was impossible. Slots are only allocated when
+ * a second clip actually needs one, so a project that never overlaps a file
+ * with itself still decodes it once.
  */
 import type { Asset } from '@/types';
 
@@ -17,6 +25,13 @@ interface Entry {
   /** Web Audio nodes, created lazily the first time audio is routed. */
   source?: MediaElementAudioSourceNode;
   gain?: GainNode;
+}
+
+/** Two is enough: a dissolve joins exactly two clips. */
+export const MAX_SLOTS = 2;
+
+function poolKey(assetId: string, slot: number): string {
+  return slot === 0 ? assetId : `${assetId}#${slot}`;
 }
 
 export class MediaPool {
@@ -35,12 +50,13 @@ export class MediaPool {
     for (const listener of this.listeners) listener();
   }
 
-  /** Creates (or returns) the element backing an asset. */
-  acquire(asset: Asset): Entry {
-    const existing = this.entries.get(asset.id);
+  /** Creates (or returns) the element backing an asset in a given slot. */
+  acquire(asset: Asset, slot = 0): Entry {
+    const key = poolKey(asset.id, slot);
+    const existing = this.entries.get(key);
     if (existing) {
       if (existing.asset.url !== asset.url) {
-        this.release(asset.id);
+        this.release(asset.id, slot);
       } else {
         return existing;
       }
@@ -64,7 +80,7 @@ export class MediaPool {
     }
 
     const entry: Entry = { asset, element, ready: false, failed: false };
-    this.entries.set(asset.id, entry);
+    this.entries.set(key, entry);
 
     const markReady = () => {
       entry.ready = true;
@@ -90,8 +106,8 @@ export class MediaPool {
     return entry;
   }
 
-  get(assetId: string): Entry | undefined {
-    return this.entries.get(assetId);
+  get(assetId: string, slot = 0): Entry | undefined {
+    return this.entries.get(poolKey(assetId, slot));
   }
 
   isReady(assetId: string): boolean {
@@ -102,17 +118,33 @@ export class MediaPool {
     return this.entries.get(assetId)?.failed ?? false;
   }
 
+  /** Every live element, for the "pause what is not under the playhead" sweep. */
+  activeKeys(): string[] {
+    return [...this.entries.keys()];
+  }
+
+  entryByKey(key: string): Entry | undefined {
+    return this.entries.get(key);
+  }
+
+  static key = poolKey;
+
   /** Drops assets that are no longer referenced by the project. */
   retain(assets: Asset[]): void {
     const keep = new Set(assets.map((a) => a.id));
-    for (const id of [...this.entries.keys()]) {
-      if (!keep.has(id)) this.release(id);
+    for (const key of [...this.entries.keys()]) {
+      const assetId = key.split('#')[0]!;
+      if (!keep.has(assetId)) this.releaseKey(key);
     }
     for (const asset of assets) this.acquire(asset);
   }
 
-  release(assetId: string): void {
-    const entry = this.entries.get(assetId);
+  release(assetId: string, slot = 0): void {
+    this.releaseKey(poolKey(assetId, slot));
+  }
+
+  private releaseKey(key: string): void {
+    const entry = this.entries.get(key);
     if (!entry) return;
     if (entry.element instanceof HTMLMediaElement) {
       entry.element.pause();
@@ -125,11 +157,11 @@ export class MediaPool {
     } catch {
       // Node already detached.
     }
-    this.entries.delete(assetId);
+    this.entries.delete(key);
   }
 
   destroy(): void {
-    for (const id of [...this.entries.keys()]) this.release(id);
+    for (const key of [...this.entries.keys()]) this.releaseKey(key);
     this.listeners.clear();
     void this.audioContext?.close().catch(() => undefined);
     this.audioContext = null;
@@ -154,8 +186,8 @@ export class MediaPool {
   }
 
   /** Per-asset gain node; created on first use so silent projects cost nothing. */
-  gainFor(assetId: string): GainNode | null {
-    const entry = this.entries.get(assetId);
+  gainFor(assetId: string, slot = 0): GainNode | null {
+    const entry = this.entries.get(poolKey(assetId, slot));
     if (!entry || !(entry.element instanceof HTMLMediaElement)) return null;
     const ctx = this.ensureAudio();
     if (!ctx || !this.masterGain) return null;

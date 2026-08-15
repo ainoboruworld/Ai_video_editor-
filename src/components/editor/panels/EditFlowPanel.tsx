@@ -78,7 +78,7 @@ export function EditFlowPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [aggression, setAggression] = useState(DEFAULT_AGGRESSION);
-  const [smoothing, setSmoothing] = useState<SmoothingStyle>('subtle');
+  const [smoothing, setSmoothing] = useState<SmoothingStyle>('dissolve');
   const [appliedCuts, setAppliedCuts] = useState(0);
   const [pausesTrimmed, setPausesTrimmed] = useState(false);
   const [suggestions, setSuggestions] = useState<BrollSuggestion[] | null>(null);
@@ -217,9 +217,11 @@ export function EditFlowPanel() {
     setAnalysis(null);
     toast.success(
       `Removed ${clock(plannedSeconds)}`,
-      smooth.seams > 0
-        ? `${smooth.seams} joins smoothed. Undo restores the original.`
-        : 'Undo restores the original.',
+      smooth.dissolved > 0
+        ? `${smooth.dissolved} of ${smooth.seams} joins dissolved. Undo restores the original.`
+        : smooth.seams > 0
+          ? `${smooth.seams} joins smoothed. Undo restores the original.`
+          : 'Undo restores the original.',
     );
     setOpen('music');
   }, [sequence, plannedCuts, smoothing, apply, pauses.length, plannedSeconds, setAnalysis]);
@@ -238,7 +240,10 @@ export function EditFlowPanel() {
       toast.info('Nothing to smooth', 'These joins already carry the smoothing you picked.');
       return;
     }
-    toast.success(`${result.seams} joins smoothed`, 'Undo restores the hard cuts.');
+    toast.success(
+      result.dissolved > 0 ? `${result.dissolved} joins dissolved` : `${result.seams} joins smoothed`,
+      'Undo restores the hard cuts.',
+    );
   }, [sequence, smoothing, apply]);
 
   const onMusic = useCallback(
@@ -539,8 +544,8 @@ export function EditFlowPanel() {
           Smooth the cuts already on the timeline
         </Button>
         <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-          Both sides of a cut come from the same file, so a cross-dissolve would ghost. These are the treatments that
-          read correctly on a same-source join.
+          The dissolve is built from the footage each cut removed, so the blend happens over the deleted filler rather
+          than over anything you kept — and that filler is never heard.
         </p>
       </>
     ),
