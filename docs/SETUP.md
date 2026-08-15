@@ -24,11 +24,16 @@ prompts produce a labelled structural draft, and export runs in the browser.
 | `PEXELS_API_KEY` | https://www.pexels.com/api/ | Yes, generous | Stock video + photo search (primary) |
 | `PIXABAY_API_KEY` | https://pixabay.com/api/docs/ | Yes | Stock video + image fallback |
 | `UNSPLASH_ACCESS_KEY` | https://unsplash.com/developers | Yes (demo tier) | Photo B-roll and stills |
-| `OPENAI_API_KEY` | https://platform.openai.com | Paid | Scripts, storyboards, captions, edit review, transcription |
-| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Free tier | Same AI features, alternative provider |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Yes | Scripts, storyboards, captions, edit review |
+| `GROQ_API_KEY` | https://console.groq.com/keys | Yes | Same AI features, plus free Whisper transcription for automatic captions |
+| `OPENAI_API_KEY` | https://platform.openai.com | No (paid) | Optional alternative for the same features — never required |
 
 Start with `PEXELS_API_KEY` — it unlocks the B-roll workflow, which is the part
-of the product that most depends on an external service.
+of the product that most depends on an external service. Then add
+`GEMINI_API_KEY` or `GROQ_API_KEY` for written scripts.
+
+Provider preference is free-first: Gemini, then Groq, then OpenAI. `AI_PROVIDER`
+forces a specific one.
 
 ## Optional infrastructure
 

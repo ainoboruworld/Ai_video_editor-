@@ -93,8 +93,9 @@ export function CaptionsPanel() {
         </Button>
         {!capabilities?.transcription.available ? (
           <p className="text-2xs leading-relaxed text-ink-3">
-            Automatic captions need a transcription provider (<code className="font-mono">OPENAI_API_KEY</code>). You
-            can still generate captions from the script, or type them by hand.
+            Automatic captions need a transcription provider — a free{' '}
+            <code className="font-mono">GROQ_API_KEY</code> is enough. You can still generate captions from the
+            script, or type them by hand.
           </p>
         ) : null}
         {status ? <p className="text-2xs text-ink-2">{status}</p> : null}

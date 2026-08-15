@@ -22,7 +22,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!provider) {
       throw new ApiError(
         503,
-        'Automatic captions need a transcription provider. Set OPENAI_API_KEY, or write captions manually.',
+        'Automatic captions need a transcription provider. Set a free GROQ_API_KEY, or write captions manually.',
         'no_transcription_provider',
       );
     }

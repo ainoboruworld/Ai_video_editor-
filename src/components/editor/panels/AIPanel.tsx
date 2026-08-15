@@ -144,8 +144,8 @@ export function AIPanel({ initialPrompt, initialDuration }: { initialPrompt?: st
 
         {!aiReady ? (
           <p className="mt-2 text-2xs leading-relaxed text-ink-3">
-            No AI key detected. You will get a labelled structural draft with real stock queries — add{' '}
-            <code className="font-mono">OPENAI_API_KEY</code> or <code className="font-mono">GEMINI_API_KEY</code> for
+            No AI key detected. You will get a labelled structural draft with real stock queries — add a free{' '}
+            <code className="font-mono">GEMINI_API_KEY</code> or <code className="font-mono">GROQ_API_KEY</code> for
             written scripts.
           </p>
         ) : null}

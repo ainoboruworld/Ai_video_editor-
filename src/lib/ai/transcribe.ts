@@ -1,15 +1,17 @@
 import 'server-only';
 import { env } from '@/lib/env';
+import { GROQ_BASE } from './groq';
 import { ApiError } from '@/lib/http';
 import type { CaptionCue } from '@/types';
 
 /**
  * Speech-to-text provider abstraction for automatic captions.
  *
- * The only implementation today is OpenAI's transcription endpoint (Whisper),
- * which returns word-level timestamps — exactly what karaoke-style captions
- * need. Adding Deepgram/AssemblyAI/Groq means adding one more class here; the
- * caption pipeline is unchanged.
+ * Both implementations speak the same OpenAI-compatible endpoint and return
+ * word-level timestamps — exactly what karaoke-style captions need. Groq is
+ * tried first because its Whisper endpoint has a free tier, so automatic
+ * captions do not require a paid account. Adding Deepgram or AssemblyAI means
+ * adding one more class here; the caption pipeline is unchanged.
  */
 export interface TranscriptionProvider {
   readonly name: string;
@@ -29,26 +31,30 @@ interface WhisperSegment {
   end: number;
 }
 
-export class OpenAiTranscription implements TranscriptionProvider {
-  readonly name = 'openai-whisper';
+/** Shared implementation for the OpenAI-compatible `/audio/transcriptions` API. */
+abstract class WhisperCompatibleTranscription implements TranscriptionProvider {
+  abstract readonly name: string;
+  protected abstract get baseUrl(): string;
+  protected abstract get apiKey(): string | null;
+  protected abstract get model(): string;
 
   isConfigured(): boolean {
-    return Boolean(env.OPENAI_API_KEY);
+    return Boolean(this.apiKey);
   }
 
   async transcribe(audio: Blob, filename: string, language?: string): Promise<CaptionCue[]> {
-    const key = env.OPENAI_API_KEY;
-    if (!key) throw new ApiError(400, 'Transcription needs OPENAI_API_KEY', 'no_transcription_provider');
+    const key = this.apiKey;
+    if (!key) throw new ApiError(400, `${this.name} is not configured`, 'no_transcription_provider');
 
     const form = new FormData();
     form.append('file', audio, filename);
-    form.append('model', env.OPENAI_TRANSCRIBE_MODEL);
+    form.append('model', this.model);
     form.append('response_format', 'verbose_json');
     form.append('timestamp_granularities[]', 'word');
     form.append('timestamp_granularities[]', 'segment');
     if (language) form.append('language', language);
 
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    const res = await fetch(`${this.baseUrl}/audio/transcriptions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}` },
       body: form,
@@ -56,11 +62,43 @@ export class OpenAiTranscription implements TranscriptionProvider {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText);
-      throw new ApiError(res.status === 401 ? 401 : 502, `Transcription failed: ${detail.slice(0, 300)}`, 'transcription_failed');
+      throw new ApiError(
+        res.status === 401 ? 401 : 502,
+        `Transcription failed: ${detail.slice(0, 300)}`,
+        'transcription_failed',
+      );
     }
 
     const body = (await res.json()) as { words?: WhisperWord[]; segments?: WhisperSegment[]; text?: string };
     return toCues(body);
+  }
+}
+
+/** Groq's free-tier Whisper — the zero-cost automatic caption path. */
+export class GroqTranscription extends WhisperCompatibleTranscription {
+  readonly name = 'groq-whisper';
+  protected get baseUrl() {
+    return GROQ_BASE;
+  }
+  protected get apiKey() {
+    return env.GROQ_API_KEY;
+  }
+  protected get model() {
+    return env.GROQ_TRANSCRIBE_MODEL;
+  }
+}
+
+/** OpenAI Whisper — supported, but optional and never required. */
+export class OpenAiTranscription extends WhisperCompatibleTranscription {
+  readonly name = 'openai-whisper';
+  protected get baseUrl() {
+    return 'https://api.openai.com/v1';
+  }
+  protected get apiKey() {
+    return env.OPENAI_API_KEY;
+  }
+  protected get model() {
+    return env.OPENAI_TRANSCRIBE_MODEL;
   }
 }
 
@@ -91,7 +129,8 @@ export function toCues(body: { words?: WhisperWord[]; segments?: WhisperSegment[
   }));
 }
 
-const transcriptionProviders: TranscriptionProvider[] = [new OpenAiTranscription()];
+// Free tier first.
+const transcriptionProviders: TranscriptionProvider[] = [new GroqTranscription(), new OpenAiTranscription()];
 
 export function activeTranscriptionProvider(): TranscriptionProvider | null {
   return transcriptionProviders.find((p) => p.isConfigured()) ?? null;

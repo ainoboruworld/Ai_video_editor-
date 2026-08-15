@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "echo 'Deprecated project — nothing to build.'",
+  "installCommand": "echo 'Skipping install.'",
+  "outputDirectory": "public"
+}

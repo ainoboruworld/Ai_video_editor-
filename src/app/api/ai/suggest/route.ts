@@ -19,7 +19,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (result.provider === 'offline') {
       throw new ApiError(
         503,
-        'AI suggestions need an AI provider. Set OPENAI_API_KEY or GEMINI_API_KEY.',
+        'AI suggestions need an AI provider. Set a free GEMINI_API_KEY or GROQ_API_KEY.',
         'no_ai_provider',
       );
     }

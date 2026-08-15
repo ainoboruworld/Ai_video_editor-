@@ -29,6 +29,13 @@ const FORMATS: { aspect: AspectRatio; label: string; platforms: string; ratio: s
 
 const DURATIONS = [15, 30, 45, 60, 90];
 
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  groq: 'Groq',
+  openai: 'OpenAI',
+  offline: 'Draft mode',
+};
+
 export function ProjectsHome() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -79,7 +86,7 @@ export function ProjectsHome() {
   const aiBadge = useMemo(() => {
     if (!capabilities) return null;
     if (capabilities.ai.available) {
-      return <Badge tone="accent">{capabilities.ai.active === 'openai' ? 'OpenAI' : 'Gemini'} connected</Badge>;
+      return <Badge tone="accent">{PROVIDER_LABELS[capabilities.ai.active]} connected</Badge>;
     }
     return <Badge tone="warn">Draft mode — no AI key</Badge>;
   }, [capabilities]);
@@ -178,9 +185,9 @@ export function ProjectsHome() {
           {error ? <p className="mt-3 text-xs text-danger">{error}</p> : null}
           {capabilities && !capabilities.ai.available ? (
             <p className="mt-3 text-2xs text-ink-3">
-              No AI key configured — prompts still produce an editable structural draft. Add{' '}
-              <code className="font-mono text-ink-2">OPENAI_API_KEY</code> or{' '}
-              <code className="font-mono text-ink-2">GEMINI_API_KEY</code> for written scripts.
+              No AI key configured — prompts still produce an editable structural draft. Add a free{' '}
+              <code className="font-mono text-ink-2">GEMINI_API_KEY</code> or{' '}
+              <code className="font-mono text-ink-2">GROQ_API_KEY</code> for written scripts.
             </p>
           ) : null}
         </section>

@@ -13,9 +13,10 @@ prompt
 
 ## Providers
 
-`src/lib/ai` exposes one interface with two implementations — `OpenAiProvider`
-and `GeminiProvider` — both forced into JSON mode. Provider choice is
-`AI_PROVIDER`, else the first configured key. Every response is parsed with a zod
+`src/lib/ai` exposes one interface with three implementations — `GeminiProvider`,
+`GroqProvider` and `OpenAiProvider` — all forced into JSON mode. Provider choice
+is `AI_PROVIDER`, else the first configured key in free-first order (Gemini,
+Groq, then OpenAI), so a working setup never requires a paid account. Every response is parsed with a zod
 schema (`src/lib/ai/schemas.ts`) before it can touch a project: free-form text
 parsing is not used anywhere.
 
@@ -63,7 +64,9 @@ Two real routes to captions:
 2. **From the audio** — the browser renders the timeline's audio to 16 kHz mono
    WAV (`features/captions/extractAudio.ts`), posts it to
    `/api/captions/transcribe`, and the provider returns word-level timings that
-   drive karaoke-style highlighting.
+   drive karaoke-style highlighting. Transcription providers share one
+   OpenAI-compatible implementation; Groq's free Whisper tier is tried first,
+   OpenAI second. No Python and no local model is involved.
 
 Both produce caption clips on the caption track, editable like any other clip.
 
@@ -71,4 +74,5 @@ Both produce caption clips on the caption track, editable like any other clip.
 
 - `/api/ai/suggest` — editing notes on the current timeline (pacing, coverage,
   captions, levels). Requires a provider; returns 503 with an explanation if none.
+  Any free key satisfies it.
 - `/api/ai/titles` — titles, description and hashtags for the finished video.
