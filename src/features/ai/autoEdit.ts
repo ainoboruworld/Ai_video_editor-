@@ -19,7 +19,7 @@ import {
   mergeRanges,
   speechRanges,
   totalDuration,
-  type LoudnessEnvelope,
+  type AudioAnalysis,
   type Range,
   type TranscriptWord,
 } from '@/features/analysis/audioAnalysis';
@@ -31,13 +31,8 @@ import { useEditorStore } from '@/state/editorStore';
 import type { AspectRatio } from '@/lib/engine';
 import type { CaptionCue, StockMediaItem } from '@/types';
 
-export interface AnalysisResult {
-  envelope: LoudnessEnvelope;
-  silences: Range[];
-  speech: Range[];
-  /** Seconds that would be removed by cutting the detected silence. */
-  removableSeconds: number;
-}
+/** Kept as the name the editor UI already uses. */
+export type AnalysisResult = AudioAnalysis;
 
 /** Cuts, expressed in timeline seconds, ready to be applied. */
 export interface CutPlan {
@@ -341,44 +336,6 @@ export function applyCallouts(callouts: { start: number; duration: number; text:
 export interface BrollSuggestion {
   cue: { start: number; duration: number; query: string; reason: string };
   items: StockMediaItem[];
-}
-
-/** The search endpoint accepts this many scenes per request. */
-const BROLL_BATCH_SIZE = 24;
-
-/**
- * Searches stock footage for each B-roll cue the AI proposed.
- *
- * A plan can propose more cues than the search endpoint takes in one request,
- * so they are sent in batches — dropping the surplus would silently lose
- * suggestions the user was told they would get.
- */
-export async function findCutawayBroll(
-  cues: { start: number; duration: number; query: string; reason: string }[],
-  aspect: AspectRatio,
-): Promise<BrollSuggestion[]> {
-  if (cues.length === 0) return [];
-
-  const results = new Map<number, BrollSuggestion['items']>();
-
-  for (let offset = 0; offset < cues.length; offset += BROLL_BATCH_SIZE) {
-    const batch = cues.slice(offset, offset + BROLL_BATCH_SIZE);
-    const { recommendations } = await api.findBroll({
-      aspect,
-      perScene: 4,
-      scenes: batch.map((cue, index) => ({
-        id: String(offset + index),
-        visual: cue.query,
-        duration: cue.duration,
-        queries: [cue.query],
-      })),
-    });
-    for (const recommendation of recommendations) {
-      results.set(Number(recommendation.sceneId), recommendation.items);
-    }
-  }
-
-  return cues.map((cue, index) => ({ cue, items: results.get(index) ?? [] }));
 }
 
 /** Places an approved cutaway over the speaker on the B-roll track. */

@@ -28,6 +28,7 @@ export const ACCEPTED_MIME = [
   'audio/x-wav',
   'audio/mp4',
   'audio/ogg',
+  'audio/webm',
 ];
 
 export const MAX_LOCAL_BYTES = 2 * 1024 * 1024 * 1024;

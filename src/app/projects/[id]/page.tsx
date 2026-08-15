@@ -4,20 +4,9 @@ export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ prompt?: string; duration?: string; mode?: string }>;
 }
 
-export default async function ProjectPage({ params, searchParams }: PageProps) {
+export default async function ProjectPage({ params }: PageProps) {
   const { id } = await params;
-  const { prompt, duration, mode } = await searchParams;
-  const parsedDuration = duration ? Number(duration) : undefined;
-
-  return (
-    <EditorShell
-      projectId={id}
-      initialPrompt={prompt}
-      initialDuration={Number.isFinite(parsedDuration) ? parsedDuration : undefined}
-      initialPanel={mode === 'edit' ? 'autoedit' : undefined}
-    />
-  );
+  return <EditorShell projectId={id} />;
 }

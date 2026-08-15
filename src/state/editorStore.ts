@@ -20,19 +20,20 @@ import {
   type Track,
 } from '@/lib/engine';
 import { api, ApiClientError } from '@/lib/api-client';
-import type { AiCapabilities, Asset, Project, StoredTranscript, Storyboard, StoryboardScene } from '@/types';
+import type { AiCapabilities, Asset, Project, StoredTranscript } from '@/types';
 import { toast } from './toastStore';
 import { loadSnapshot, saveSnapshot } from '@/features/projects/localSnapshot';
+import type { AudioAnalysis } from '@/features/analysis/audioAnalysis';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 export type PanelId =
+  | 'edit'
   | 'media'
   | 'broll'
   | 'text'
   | 'captions'
   | 'transcript'
   | 'audio'
-  | 'ai'
   | 'autoedit'
   | 'effects'
   | 'transitions';
@@ -47,8 +48,16 @@ interface EditorState {
   version: number;
   sequence: Sequence | null;
   assets: Asset[];
-  storyboard: Storyboard | null;
   transcript: StoredTranscript | null;
+  /**
+   * Audio analysis for the current recording, and the user's decisions about
+   * the fillers found in it. Both live here rather than in the Edit panel
+   * because switching rails unmounts that panel, and re-analysing the audio
+   * every time the user glances at the transcript is not acceptable. Neither
+   * is persisted: the envelope is derived from media that is already saved.
+   */
+  audioAnalysis: AudioAnalysis | null;
+  fillerDecisions: Record<string, boolean>;
   capabilities: AiCapabilities | null;
 
   history: EditorHistory;
@@ -60,7 +69,6 @@ interface EditorState {
   selection: string[];
   snapEnabled: boolean;
   activePanel: PanelId;
-  storyboardOpen: boolean;
   saveStatus: SaveStatus;
   saveError: string | null;
 
@@ -79,15 +87,13 @@ interface EditorState {
   select: (ids: string[], additive?: boolean) => void;
   toggleSnap: () => void;
   setPanel: (panel: PanelId) => void;
-  setStoryboardOpen: (open: boolean) => void;
 
   addAsset: (asset: Asset) => void;
   removeAsset: (assetId: string) => void;
-  setStoryboard: (storyboard: Storyboard | null) => void;
   setTranscript: (transcript: StoredTranscript | null) => void;
-  updateScene: (sceneId: string, patch: Partial<StoryboardScene>) => void;
-  removeScene: (sceneId: string) => void;
-  duplicateScene: (sceneId: string) => void;
+  setAudioAnalysis: (analysis: AudioAnalysis | null) => void;
+  setFillerDecision: (id: string, accepted: boolean) => void;
+  setFillerDecisions: (decisions: Record<string, boolean>) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,8 +109,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   version: 0,
   sequence: null,
   assets: [],
-  storyboard: null,
   transcript: null,
+  audioAnalysis: null,
+  fillerDecisions: {},
   capabilities: null,
 
   history: new EditorHistory(),
@@ -116,7 +123,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selection: [],
   snapEnabled: true,
   activePanel: 'media',
-  storyboardOpen: false,
   saveStatus: 'idle',
   saveError: null,
 
@@ -213,7 +219,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
   setPanel: (panel) => set({ activePanel: panel }),
-  setStoryboardOpen: (open) => set({ storyboardOpen: open }),
 
   addAsset: (asset) => {
     set((state) => ({
@@ -234,65 +239,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     scheduleSave(get, set);
   },
 
-  setStoryboard: (storyboard) => {
-    set({ storyboard, saveStatus: 'dirty' });
-    scheduleSave(get, set);
-  },
 
   setTranscript: (transcript) => {
     set({ transcript, saveStatus: 'dirty' });
     scheduleSave(get, set);
   },
 
-  updateScene: (sceneId, patch) => {
-    set((state) => {
-      if (!state.storyboard) return {};
-      return {
-        storyboard: {
-          ...state.storyboard,
-          scenes: state.storyboard.scenes.map((scene) => (scene.id === sceneId ? { ...scene, ...patch } : scene)),
-        },
-        saveStatus: 'dirty' as SaveStatus,
-      };
-    });
-    scheduleSave(get, set);
-  },
+  setAudioAnalysis: (analysis) => set({ audioAnalysis: analysis }),
 
-  removeScene: (sceneId) => {
-    set((state) => {
-      if (!state.storyboard) return {};
-      return {
-        storyboard: {
-          ...state.storyboard,
-          scenes: state.storyboard.scenes
-            .filter((scene) => scene.id !== sceneId)
-            .map((scene, index) => ({ ...scene, index })),
-        },
-        saveStatus: 'dirty' as SaveStatus,
-      };
-    });
-    scheduleSave(get, set);
-  },
+  setFillerDecision: (id, accepted) =>
+    set((state) => ({ fillerDecisions: { ...state.fillerDecisions, [id]: accepted } })),
 
-  duplicateScene: (sceneId) => {
-    set((state) => {
-      if (!state.storyboard) return {};
-      const scenes = [...state.storyboard.scenes];
-      const index = scenes.findIndex((scene) => scene.id === sceneId);
-      if (index === -1) return {};
-      const copy: StoryboardScene = {
-        ...scenes[index]!,
-        id: `scene-copy-${Math.random().toString(36).slice(2, 8)}`,
-        clipIds: [],
-      };
-      scenes.splice(index + 1, 0, copy);
-      return {
-        storyboard: { ...state.storyboard, scenes: scenes.map((scene, i) => ({ ...scene, index: i })) },
-        saveStatus: 'dirty' as SaveStatus,
-      };
-    });
-    scheduleSave(get, set);
-  },
+  setFillerDecisions: (decisions) => set({ fillerDecisions: decisions }),
+
 }));
 
 type Setter = (partial: Partial<EditorState>) => void;
@@ -307,7 +266,6 @@ function hydrate(set: Setter, project: Project, version: number): void {
     fps: project.fps,
     sequence: project.sequence,
     assets: project.assets,
-    storyboard: project.storyboard,
     transcript: project.transcript ?? null,
     version,
     history: new EditorHistory(),
@@ -342,7 +300,6 @@ export function serializeProject(state: EditorState): Project | null {
     fps: state.fps,
     sequence: state.sequence,
     assets: state.assets,
-    storyboard: state.storyboard,
     transcript: state.transcript,
     settings: {
       brollProviders: ['pexels', 'pixabay', 'unsplash'],
@@ -372,7 +329,6 @@ async function persist(get: () => EditorState, set: Setter): Promise<void> {
       fps: document.fps,
       sequence: document.sequence,
       assets: document.assets,
-      storyboard: document.storyboard,
       transcript: document.transcript,
       version: state.version,
     });

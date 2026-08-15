@@ -15,6 +15,7 @@ export const ACCEPTED_TYPES: Record<string, 'video' | 'image' | 'audio'> = {
   'audio/x-wav': 'audio',
   'audio/mp4': 'audio',
   'audio/ogg': 'audio',
+  'audio/webm': 'audio',
 };
 
 /** Ceiling for direct-to-storage uploads. */

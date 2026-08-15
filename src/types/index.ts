@@ -46,41 +46,6 @@ export interface Asset {
   ephemeral?: boolean;
 }
 
-// ------------------------------------------------------------ storyboard ---
-
-export interface StoryboardScene {
-  id: string;
-  index: number;
-  title: string;
-  /** Target duration in seconds. */
-  duration: number;
-  /** Narration / spoken script for the scene. */
-  script: string;
-  /** Text burned on screen. */
-  onScreenText: string;
-  /** Plain-language description of the required visual. */
-  visual: string;
-  /** Stock search queries derived from `visual`. */
-  brollQueries: string[];
-  /** Asset id chosen for this scene (from the media library). */
-  assetId: string | null;
-  transition: TransitionKind | 'cut';
-  /** Ids of the clips this scene produced on the timeline. */
-  clipIds: string[];
-}
-
-export interface Storyboard {
-  prompt: string;
-  title: string;
-  hook: string;
-  cta: string;
-  tone: string;
-  scenes: StoryboardScene[];
-  /** Which provider produced this storyboard. */
-  provider: AiProviderName;
-  createdAt: string;
-}
-
 // --------------------------------------------------------------- project ---
 
 export interface ProjectSettings {
@@ -116,7 +81,6 @@ export interface Project {
   fps: number;
   sequence: Sequence;
   assets: Asset[];
-  storyboard: Storyboard | null;
   /** Whatever transcript the project has, from any source. */
   transcript: StoredTranscript | null;
   settings: ProjectSettings;
@@ -199,15 +163,6 @@ export type AiProviderName =
   | 'gemini'
   | 'openai'
   | 'offline';
-
-export interface ScriptRequest {
-  prompt: string;
-  durationSeconds: number;
-  aspect: AspectRatio;
-  tone?: string;
-  language?: string;
-  sceneCount?: number;
-}
 
 export interface AiCapabilities {
   ai: {

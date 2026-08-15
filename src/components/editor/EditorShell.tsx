@@ -12,15 +12,13 @@ import { SideRail, type RailId } from './SideRail';
 import { VideoCanvas } from './VideoCanvas';
 import { Inspector } from './Inspector';
 import { Timeline } from './Timeline';
-import { Storyboard } from './Storyboard';
 import { ExportDialog } from './ExportDialog';
 import { CreditsDialog } from './CreditsDialog';
+import { EditFlowPanel } from './panels/EditFlowPanel';
 import { MediaPanel } from './panels/MediaPanel';
 import { BrollPanel } from './panels/BrollPanel';
 import { TextPanel } from './panels/TextPanel';
 import { AudioPanel } from './panels/AudioPanel';
-import { AIPanel } from './panels/AIPanel';
-import { AutoEditPanel } from './panels/AutoEditPanel';
 import { TranscriptPanel } from './panels/TranscriptPanel';
 import { EffectsPanel } from './panels/EffectsPanel';
 import { TransitionsPanel } from './panels/TransitionsPanel';
@@ -33,13 +31,9 @@ import { Button } from '@/components/ui';
  */
 export function EditorShell({
   projectId,
-  initialPrompt,
-  initialDuration,
   initialPanel,
 }: {
   projectId: string;
-  initialPrompt?: string;
-  initialDuration?: number;
   initialPanel?: RailId;
 }) {
   const load = useEditorStore((state) => state.load);
@@ -54,8 +48,8 @@ export function EditorShell({
   useEffect(() => {
     if (railInitialised) return;
     setRailInitialised(true);
-    setRail(initialPanel ?? (initialPrompt ? 'ai' : 'media'));
-  }, [railInitialised, initialPanel, initialPrompt, setRail]);
+    setRail(initialPanel ?? 'edit');
+  }, [railInitialised, initialPanel, setRail]);
   const [exportOpen, setExportOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
 
@@ -113,10 +107,9 @@ export function EditorShell({
 
         <div className="hidden w-[320px] shrink-0 flex-col border-r border-line bg-bg-1 md:flex">
           <div className="min-h-0 flex-1 overflow-hidden">
+            {rail === 'edit' ? <EditFlowPanel /> : null}
             {rail === 'media' ? <MediaPanel /> : null}
             {rail === 'broll' ? <BrollPanel /> : null}
-            {rail === 'ai' ? <AIPanel initialPrompt={initialPrompt} initialDuration={initialDuration} /> : null}
-            {rail === 'autoedit' ? <AutoEditPanel /> : null}
             {rail === 'transcript' ? <TranscriptPanel /> : null}
             {rail === 'text' ? <TextPanel /> : null}
             {rail === 'captions' ? <CaptionsPanel /> : null}
@@ -145,8 +138,6 @@ export function EditorShell({
         <div className="hidden lg:flex">
           <Inspector />
         </div>
-
-        <Storyboard />
       </div>
 
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} engine={engine} />

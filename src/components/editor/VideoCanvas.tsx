@@ -143,7 +143,7 @@ export function VideoCanvas({
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
               <p className="text-xs font-medium text-ink-2">Nothing on the timeline yet</p>
               <p className="max-w-[26ch] text-2xs text-ink-3">
-                Add media, or generate a storyboard from the AI panel.
+                Upload your video from the Edit panel to get started.
               </p>
             </div>
           ) : null}

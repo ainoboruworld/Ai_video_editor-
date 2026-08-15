@@ -23,12 +23,13 @@ src/
     projects/[id]/     the editor
   components/
     editor/            EditorShell, TopBar, VideoCanvas, Timeline, Inspector,
-                       Storyboard, ExportDialog, CreditsDialog, panels/
-    home/              project browser + prompt entry
+                       ExportDialog, CreditsDialog, panels/
+    home/              project browser + upload entry
     ui/                shared primitives
   features/
-    ai/                the prompt → storyboard → B-roll → captions workflow
-    broll/             storyboard → timeline assembly, auto-fit
+    ai/                transcript-driven recut, B-roll search, cut transitions
+    edit/              fillers, pauses, smoothing, ducking, the step workflow
+    broll/             approved B-roll → timeline placement, auto-fit
     captions/          timeline audio mixdown for transcription
     media/             media element pool, upload pipeline
     rendering/         in-browser exporter
@@ -41,7 +42,7 @@ src/
     media/             stock provider abstraction + ranking
     storage/           storage abstraction (S3-compatible, filesystem)
     auth/              session + ownership
-  state/               zustand stores (editor, storyboard UI, toasts)
+  state/               zustand stores (editor, toasts)
   types/               shared domain types
 remotion/              composition used by the cloud renderer
 scripts/               render worker + render CLI
@@ -68,7 +69,7 @@ an API key.
 
 **Degrade, never fake.** Each capability reports its real state through
 `/api/config`, and the UI shows it. Missing keys produce an explanation and a
-working alternative (offline storyboard draft, browser export, local storage),
+working alternative (local filler/pause detection, browser export, local storage),
 never a fake progress bar or invented data.
 
 **Serverless-shaped.** No long-running processes, no reliance on a writable

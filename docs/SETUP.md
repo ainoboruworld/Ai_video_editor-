@@ -24,7 +24,7 @@ prompts produce a labelled structural draft, and export runs in the browser.
 | `PEXELS_API_KEY` | https://www.pexels.com/api/ | Yes, generous | Stock video + photo search (primary) |
 | `PIXABAY_API_KEY` | https://pixabay.com/api/docs/ | Yes | Stock video + image fallback |
 | `UNSPLASH_ACCESS_KEY` | https://unsplash.com/developers | Yes (demo tier) | Photo B-roll and stills |
-| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Yes | Scripts, storyboards, captions, edit review |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Yes | Optional AI recut and B-roll queries |
 | `OPENROUTER_API_KEY` | https://openrouter.ai/keys | Yes (`:free` models) | Same AI features via free Qwen models |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | https://dash.cloudflare.com | Yes (daily allowance) | Text models and Whisper transcription |
 | `HF_TOKEN` | https://huggingface.co/settings/tokens | Yes | Open Qwen/Llama weights and Whisper |
@@ -50,7 +50,7 @@ rather than word-level timings, so both options are offered side by side.
 
 ### Which free key for which job
 
-Any one of Groq, OpenRouter or Gemini is enough for scripts, storyboards and
+Any one of Groq, OpenRouter or Gemini is enough for the optional AI passes and
 edit planning. They differ in how much they give you:
 
 - **Groq** — day-scale limits, and a Whisper endpoint billed per audio second
@@ -99,7 +99,7 @@ npm run build
 ## End-to-end smoke test (optional)
 
 `scripts/smoke-e2e.mjs` drives the whole product flow in a real browser —
-prompt → storyboard → assemble → edit → play → split → undo → export — and fails
+upload → transcript → fillers → cuts → smooth → captions → export — and fails
 if the export does not produce a file. Playwright is not a project dependency,
 so install it on demand:
 

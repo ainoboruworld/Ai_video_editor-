@@ -9,6 +9,7 @@ import {
   Cloud,
   Loader2,
   Pencil,
+  Play,
   Plus,
   Scissors,
   Split,
@@ -77,6 +78,7 @@ export function TranscriptPanel() {
   const setTranscript = useEditorStore((state) => state.setTranscript);
   const capabilities = useEditorStore((state) => state.capabilities);
   const setPlayhead = useEditorStore((state) => state.setPlayhead);
+  const playhead = useEditorStore((state) => state.playhead);
 
   const [source, setSource] = useState<TranscriptSource>('manual');
   const [whisperModel, setWhisperModel] = useState<WhisperModelSize>('base');
@@ -135,7 +137,7 @@ export function TranscriptPanel() {
       <div className="flex-1 overflow-y-auto p-2.5">
         {!primary ? (
           <p className="rounded-md border border-line bg-bg-2 px-2.5 py-2 text-2xs leading-relaxed text-ink-2">
-            Add your video to the timeline first — the Media panel or the Auto-edit panel will do it. A transcript can
+            Add your video to the timeline first — the Edit panel will do it. A transcript can
             still be pasted below, but the timings will not line up with anything until there is footage.
           </p>
         ) : null}
@@ -341,6 +343,7 @@ export function TranscriptPanel() {
                 <SegmentRow
                   key={segment.id}
                   segment={segment}
+                  active={playhead >= segment.start && playhead < segment.end}
                   onSeek={() => setPlayhead(segment.start)}
                   onChange={(next) => updateSegments(segments.map((s) => (s.id === segment.id ? next : s)))}
                   onDelete={() => updateSegments(segments.filter((s) => s.id !== segment.id))}
@@ -581,6 +584,7 @@ function SegmentRow({
   onSplit,
   onAddAfter,
   onSeek,
+  active,
 }: {
   segment: TranscriptSegment;
   onChange: (next: TranscriptSegment) => void;
@@ -588,6 +592,7 @@ function SegmentRow({
   onSplit: () => void;
   onAddAfter: () => void;
   onSeek: () => void;
+  active: boolean;
 }) {
   const [start, setStart] = useState(formatTimestamp(segment.start));
   const [end, setEnd] = useState(formatTimestamp(segment.end));
@@ -604,7 +609,12 @@ function SegmentRow({
   };
 
   return (
-    <div className="group rounded-md border border-transparent p-1.5 hover:border-line hover:bg-bg-2">
+    <div
+      className={cn(
+        'group rounded-md border p-1.5 hover:border-line hover:bg-bg-2',
+        active ? 'border-accent/50 bg-accent-ghost' : 'border-transparent',
+      )}
+    >
       <div className="flex items-center gap-1">
         <input
           value={start}
@@ -620,8 +630,8 @@ function SegmentRow({
           className="w-11 rounded bg-transparent px-1 py-0.5 text-center font-mono text-2xs text-ink-2 hover:bg-bg-3 focus:bg-bg-3"
         />
         <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <IconBtn title="Play from here" onClick={onSeek}>
-            <Check size={10} />
+          <IconBtn title="Jump the playhead here" onClick={onSeek}>
+            <Play size={10} />
           </IconBtn>
           <IconBtn title="Split segment" onClick={onSplit}>
             <Split size={10} />
@@ -637,6 +647,7 @@ function SegmentRow({
       <textarea
         value={segment.text}
         onChange={(event) => onChange({ ...segment, text: event.target.value })}
+        onFocus={onSeek}
         rows={2}
         className="mt-1 w-full resize-none rounded bg-transparent px-1 text-2xs leading-relaxed text-ink-1 hover:bg-bg-3 focus:bg-bg-3 focus:outline-none"
       />

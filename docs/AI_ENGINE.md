@@ -1,15 +1,23 @@
-# AI and B-roll pipeline
+# The editing assistant
+
+AI here assists an edit; it does not make a video. There is no prompt-to-video
+path, and the passes that matter most — filler detection, pause trimming, cut
+smoothing, ducking, captions — run locally with no provider at all.
 
 ```
-prompt
-  └─► /api/ai/script      → storyboard (hook, scenes, script, on-screen text,
-                            visual description, B-roll queries, CTA)
-        └─► /api/ai/broll  → queries per scene → Pexels / Pixabay / Unsplash
-                             → ranked recommendations (never auto-inserted)
-              └─► user approves → /api/assets/import → project asset
-                    └─► assemble → editor commands → timeline
-                          └─► /api/ai/captions or /api/captions/transcribe
+your recording
+  └─► browser audio analysis   → loudness envelope, silences, speech ranges
+        └─► transcript          → local Whisper | hosted Whisper | pasted by hand
+              └─► filler + pause detection (local, no key)
+                    └─► cut review → user approves → timeline commands
+                          └─► /api/ai/broll → what was said → queries
+                                → Pexels / Pixabay / Unsplash → ranked, never
+                                  auto-inserted
 ```
+
+The one optional model-driven edit is **AI Recut** (`/api/ai/edit`), which reads
+the transcript and proposes keep/remove spans. It is a proposal like every other:
+the timeline changes when the user clicks Apply.
 
 ## Providers
 
@@ -20,17 +28,17 @@ Groq, then OpenAI), so a working setup never requires a paid account. Every resp
 schema (`src/lib/ai/schemas.ts`) before it can touch a project: free-form text
 parsing is not used anywhere.
 
-## Offline draft mode
+## What runs without a provider
 
-With no AI key, `src/lib/ai/offline.ts` produces a deterministic storyboard: real
-beats (hook → context → proof → detail → payoff → CTA), durations distributed to
-the requested length, and stock queries derived from the subject. It is labelled
-`provider: "offline"` in the API and shown as **draft mode** in the UI. It is a
-structural starting point, not a pretend language model.
+Filler detection, pause trimming, cut smoothing, music ducking, captions from a
+transcript and the whole export path need no key and make no network call. B-roll
+search falls back to locally derived queries (`deriveQueries`) when no model is
+configured, so the only thing a key buys there is a better phrasing of the search.
+Nothing anywhere is labelled AI when it is a heuristic.
 
 ## Query generation and ranking
 
-A scene's visual description becomes 2–4 search phrases, either from the model or
+A spoken sentence becomes 2–4 search phrases, either from the model or
 derived locally (`deriveQueries`: specific phrase → key tokens → single terms).
 Each query is run against every configured provider in parallel; results are
 merged, de-duplicated and scored by:
@@ -45,22 +53,23 @@ is shown on each result as a match percentage.
 
 ## Auto-fit
 
-When a scene's footage lands on the timeline (`features/broll/assemble.ts`):
+When approved B-roll lands on the timeline (`features/broll/assemble.ts`):
 
-- longer than the scene → trimmed;
+- longer than the moment → trimmed;
 - slightly shorter → slowed (never below 0.6×) instead of leaving a gap;
-- much shorter → repeated to cover the scene;
-- images → held for the scene;
-- framing → cover-fit and cropped, never stretched;
-- the scene's transition is applied to the first segment.
+- much shorter → repeated to cover it;
+- images → held;
+- framing → cover-fit and cropped, never stretched.
 
-Everything stays a normal clip afterwards: trim it, move it, restyle it.
+The speaker's audio keeps playing underneath, and everything stays a normal clip
+afterwards: trim it, move it, restyle it, delete it.
 
 ## Captions
 
 Two real routes to captions:
 
-1. **From the script** — `/api/ai/captions` splits narration into timed cues.
+1. **From the transcript you already have** — no request of any kind; the
+   segments become caption clips directly.
 2. **From the audio** — the browser renders the timeline's audio to 16 kHz mono
    WAV (`features/captions/extractAudio.ts`), posts it to
    `/api/captions/transcribe`, and the provider returns word-level timings that
@@ -70,17 +79,19 @@ Two real routes to captions:
 
 Both produce caption clips on the caption track, editable like any other clip.
 
-## Editing footage the user already has
+## The edit itself
 
-The second workflow — "edit my video" rather than "make me a video" — lives in
-`features/analysis`, `features/ai/autoEdit.ts` and `/api/ai/edit`. It is layered
-so each step works with whatever is configured:
+The workflow lives in `features/edit`, `features/analysis` and
+`features/ai/autoEdit.ts`. It is layered so each step works with whatever is
+configured:
 
 | Step | Needs | What happens |
 | --- | --- | --- |
 | Cut dead air | nothing | The browser decodes the audio, measures RMS loudness per 20 ms window and finds stretches below a threshold *relative to the recording's own peak*, so quiet and loud recordings both work untuned. Cuts are ripple deletes, padded so they do not clip word onsets. |
 | Transcript | nothing, or a free key | Three interchangeable sources — see below. |
-| AI edit | an AI provider | The model sees only the transcript with timings and returns which segments to keep, where a cutaway would help, and short on-screen callouts. |
+| Fillers | a transcript | Context rules decide whether a word is filler in *this* position — see below. |
+| Pause trimming | nothing | Long gaps are shortened, not deleted; a beat is always left behind. |
+| AI recut | an AI provider | The model sees only the transcript with timings and returns which segments to keep. Optional. |
 
 ### The transcript is the hinge
 
@@ -99,9 +110,60 @@ editing: a transcript obtained anywhere — including pasting the video into a
 chat assistant — makes the whole downstream workflow available immediately.
 
 Gemini is deliberately **not** a transcription provider: its audio is billed as
-tokens from the same small allowance the script and recut calls use, so
+tokens from the same small allowance the recut calls use, so
 transcribing a real recording exhausted the quota the rest of the workflow
 depends on. It remains a reasoning provider.
+
+### Filler detection has to understand context
+
+Deleting every match of a filler word list ruins recordings. "Basically" opening
+a sentence is usually the speaker's actual point; "basically" wedged between two
+commas is throat-clearing. So `features/edit/fillers.ts` splits the list in two:
+
+- **Hesitation sounds** (`um`, `uh`, `er`, `erm`, `ah`, `mm`) are filler
+  anywhere, and arrive pre-ticked.
+- **Real words** (`like`, `so`, `basically`, `actually`, `you know`, `I mean`,
+  `kind of`, `sort of`, `right`) each carry the test that decides. "It looks like
+  a duck" and "I like this" keep their `like`; "it was, like, different" does not.
+  "You know that we shipped" keeps its `you know`. These arrive unticked, with the
+  reason shown, for the user to accept one at a time.
+
+Every candidate also needs a real span of recording, because cutting text out of
+a transcript does nothing to the video. Word timings are used when the transcript
+has them. Without them the span is interpolated across the segment and — when the
+audio has been analysed — pulled out to the quiet either side, since a filler is
+nearly always bracketed by a breath. Interpolated spans are labelled estimated in
+the UI rather than presented as measurements.
+
+### Pauses are shortened, not removed
+
+Closing every gap to zero is what makes auto-edited video sound robotic.
+`features/edit/pauses.ts` only touches pauses past a threshold, takes the cut out
+of the *middle* so both phrases keep air around them, and always leaves a beat.
+The slider runs from "cuts pauses over 2.0s, leaving 0.45s" to "over 0.28s,
+leaving 0.08s", and defaults near the conservative end.
+
+### Smoothing is audio first
+
+A jump cut fails in two ways and they need different fixes. The audible failure
+is a click, from severing the waveform mid-cycle; a few frames of fade on each
+side removes it and is itself inaudible. The visible failure is the speaker's
+head snapping position, and the standard fix is not a transition — it is a small
+change of framing across the cut, so the edit reads as a second camera angle.
+
+So the default (`features/edit/smoothing.ts`) is a 45 ms audio fade on both sides
+of every join plus an alternating ~3.5% reframe on the picture. No spins, no
+flashes, no big zooms. "Soft dip" and "audio only" are there for the cases that
+want them.
+
+### Music ducks under speech
+
+`features/edit/ducking.ts` writes a volume envelope onto the music clip from the
+speech ranges the analysis found: a bed of 0.28 in the gaps, 0.09 under a voice,
+with an attack shorter than the release so it does not pump. Phrases a breath
+apart stay ducked through the breath. The envelope is `keyframes.volume` on the
+clip, which the playback engine's gain graph reads — and the export captures that
+same graph, so preview and file cannot disagree.
 
 ### Recuts are proposals, not edits
 
@@ -147,9 +209,9 @@ Two safeguards matter here:
 Every step is one undoable command batch, and B-roll cutaways are only inserted
 after the user picks one.
 
-## Other AI features
+## What is deliberately absent
 
-- `/api/ai/suggest` — editing notes on the current timeline (pacing, coverage,
-  captions, levels). Requires a provider; returns 503 with an explanation if none.
-  Any free key satisfies it.
-- `/api/ai/titles` — titles, description and hashtags for the finished video.
+There is no prompt-to-video route, no storyboard generator and no "write me a
+script" endpoint. They were removed rather than hidden: the product's job is to
+shorten the edit of footage that already exists, and an interface that also
+offers to invent footage teaches the wrong thing about what it does.

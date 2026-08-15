@@ -23,6 +23,15 @@ export interface Range {
   end: number;
 }
 
+/** Everything one pass over a recording's audio produces. */
+export interface AudioAnalysis {
+  envelope: LoudnessEnvelope;
+  silences: Range[];
+  speech: Range[];
+  /** Seconds that would be removed by cutting the detected silence. */
+  removableSeconds: number;
+}
+
 export interface SilenceOptions {
   /** Relative to the recording's own peak: 0.06 ≈ -24 dBFS of peak. */
   thresholdRatio?: number;
