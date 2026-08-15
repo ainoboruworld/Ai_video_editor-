@@ -77,6 +77,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         .map((segment) => ({ ...segment, start: clamp(segment.start), end: clamp(segment.end) }))
         .filter((segment) => segment.end - segment.start > 0.2)
         .sort((a, b) => a.start - b.start),
+      remove: plan.remove
+        .map((segment) => ({ ...segment, start: clamp(segment.start), end: clamp(segment.end) }))
+        .filter((segment) => segment.end - segment.start > 0.05)
+        .sort((a, b) => a.start - b.start),
       brollCues: plan.brollCues
         .map((cue) => ({ ...cue, start: clamp(cue.start) }))
         .filter((cue) => cue.start < limit),

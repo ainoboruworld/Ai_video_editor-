@@ -79,8 +79,40 @@ so each step works with whatever is configured:
 | Step | Needs | What happens |
 | --- | --- | --- |
 | Cut dead air | nothing | The browser decodes the audio, measures RMS loudness per 20 ms window and finds stretches below a threshold *relative to the recording's own peak*, so quiet and loud recordings both work untuned. Cuts are ripple deletes, padded so they do not clip word onsets. |
-| Transcript | a free AI key | The timeline audio is mixed to 16 kHz mono WAV in the browser and transcribed. Word timings drive filler-word removal (`um`, `you know`, …) and karaoke captions. |
+| Transcript | nothing, or a free key | Three interchangeable sources — see below. |
 | AI edit | an AI provider | The model sees only the transcript with timings and returns which segments to keep, where a cutaway would help, and short on-screen callouts. |
+
+### The transcript is the hinge
+
+Captions, the AI recut and Smart Auto-Cut all read from one transcript, and it
+can come from any of three places. They normalise to the same
+`TranscriptSegment[]`, so nothing downstream knows or cares which was used:
+
+| Source | Needs | Notes |
+| --- | --- | --- |
+| **Manual** | nothing | Paste a transcript. Accepts `00:00 - 00:04` ranges, SRT/VTT, one timestamp per line, or plain prose. Untimed pastes are spread by sentence length and flagged as estimated rather than given invented precision. |
+| **Local Whisper** | nothing | Runs in the browser; the model downloads once. |
+| **Hosted** | a free `GROQ_API_KEY` | Fastest, and the only source with word-level timings for karaoke captions. |
+
+Manual mode exists so that neither a model download nor an API quota can block
+editing: a transcript obtained anywhere — including pasting the video into a
+chat assistant — makes the whole downstream workflow available immediately.
+
+Gemini is deliberately **not** a transcription provider: its audio is billed as
+tokens from the same small allowance the script and recut calls use, so
+transcribing a real recording exhausted the quota the rest of the workflow
+depends on. It remains a reasoning provider.
+
+### Recuts are proposals, not edits
+
+Both the AI recut and Smart Auto-Cut return the same shape — spans to keep and
+spans to remove, each with a reason — and the editor shows the whole plan before
+anything happens. The timeline changes only when the user clicks **Apply Recut**,
+as one undoable step.
+
+`Smart Auto-Cut` is the no-key path and is never called AI: it removes long
+pauses found in the audio, filler-only segments (`um`, `so`), very short
+fragments and obvious hedging phrases, and keeps everything else.
 
 Two safeguards matter here:
 

@@ -163,6 +163,7 @@ export const api = {
         summary: string;
         title: string;
         keep: { start: number; end: number; reason: string }[];
+        remove: { start: number; end: number; reason: string }[];
         brollCues: { start: number; duration: number; query: string; reason: string }[];
         callouts: { start: number; duration: number; text: string }[];
       };

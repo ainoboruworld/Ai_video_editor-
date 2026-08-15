@@ -153,6 +153,24 @@ export const projectDocSchema = z.object({
     })
     .nullable()
     .optional(),
+  transcript: z
+    .object({
+      segments: z
+        .array(
+          z.object({
+            id: z.string().max(120),
+            start: finite.min(0),
+            end: finite.min(0),
+            text: z.string().max(2000),
+          }),
+        )
+        .max(5000),
+      source: z.enum(['local', 'hosted', 'manual']),
+      estimatedTimings: z.boolean(),
+      createdAt: z.string().max(40),
+    })
+    .nullable()
+    .optional(),
   settings: z
     .object({
       brollProviders: z.array(z.enum(['pexels', 'pixabay', 'unsplash'])).max(3),

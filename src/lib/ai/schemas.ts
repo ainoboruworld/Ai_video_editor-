@@ -80,6 +80,17 @@ export const editPlanSchema = z.object({
     )
     .max(200)
     .default([]),
+  /** Segments to drop, with why — shown to the user before anything is cut. */
+  remove: z
+    .array(
+      z.object({
+        start: z.number().min(0),
+        end: z.number().min(0),
+        reason: z.string().max(200).default(''),
+      }),
+    )
+    .max(200)
+    .default([]),
   /** Moments where a cutaway would help, with a stock query for each. */
   brollCues: z
     .array(

@@ -37,7 +37,7 @@ import { LOCAL_WHISPER_MODELS, isLocalWhisperSupported, type WhisperModelSize } 
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration, type AspectRatio } from '@/lib/engine';
 import { Badge, Button, EmptyState, Field, Input, PanelHeader, ProgressBar, Select, Textarea } from '@/components/ui';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, FileText } from 'lucide-react';
 import { ProviderPicker } from '@/components/editor/ProviderPicker';
 import type { AiProviderName } from '@/types';
 import { clock } from '@/lib/format';
@@ -60,6 +60,7 @@ export function AutoEditPanel() {
   const aspect = useEditorStore((state) => state.aspect);
   const capabilities = useEditorStore((state) => state.capabilities);
   const addAsset = useEditorStore((state) => state.addAsset);
+  const setPanel = useEditorStore((state) => state.setPanel);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -242,233 +243,23 @@ export function AutoEditPanel() {
               ) : null}
             </Step>
 
-            {/* Step 2 — needs transcription */}
-            <Step
-              number={2}
-              title="Transcript"
-              note={mode === 'local' ? 'Free, no quota' : (capabilities?.transcription.provider ?? 'needs a key')}
-            >
-              {mode === 'hosted' &&
-              transcriptionReady &&
-              capabilities?.transcription.provider === 'gemini-audio' &&
-              duration > 240 ? (
-                <p className="mb-1.5 rounded border border-warn/25 bg-warn/5 px-2 py-1.5 text-2xs leading-relaxed text-warn">
-                  This is a {clock(duration)} recording. Gemini bills audio by length and its free tier is small.
-                  Switch to <span className="text-ink-1">On this device</span> above, or set a free{' '}
-                  <code className="font-mono">GROQ_API_KEY</code>, to keep your Gemini quota for the AI recut.
-                </p>
-              ) : null}
-              <div className="mb-2 flex items-center gap-1 rounded-md bg-bg-2 p-1">
-                <button
-                  type="button"
-                  onClick={() => setMode('local')}
-                  disabled={!localSupported}
-                  className={cn(
-                    'flex-1 rounded px-2 py-1 text-2xs font-medium transition-colors disabled:opacity-40',
-                    mode === 'local' ? 'bg-bg-3 text-ink-0' : 'text-ink-3 hover:text-ink-1',
-                  )}
-                >
-                  On this device
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode('hosted')}
-                  disabled={!transcriptionReady}
-                  className={cn(
-                    'flex-1 rounded px-2 py-1 text-2xs font-medium transition-colors disabled:opacity-40',
-                    mode === 'hosted' ? 'bg-bg-3 text-ink-0' : 'text-ink-3 hover:text-ink-1',
-                  )}
-                >
-                  Hosted {transcriptionReady ? '' : '(no key)'}
-                </button>
-              </div>
-
-              {mode === 'local' ? (
-                <Field label="Model" hint={`~${LOCAL_WHISPER_MODELS[whisperModel].downloadMb} MB once`} className="mb-2">
-                  <Select
-                    value={whisperModel}
-                    onChange={(event) => setWhisperModel(event.target.value as WhisperModelSize)}
-                    className="w-full"
-                  >
-                    {Object.entries(LOCAL_WHISPER_MODELS).map(([key, model]) => (
-                      <option key={key} value={key}>
-                        {model.label} — {model.note}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : null}
-
-              <Button
-                size="sm"
-                className="w-full justify-start"
-                icon={<Captions size={12} />}
-                loading={busy === 'transcribe'}
-                disabled={mode === 'local' ? !localSupported : !transcriptionReady}
-                onClick={() =>
-                  void run('transcribe', async () => {
-                    const result = await transcribeTimeline(setStatus, { mode, model: whisperModel });
-                    setCues(result);
-                    if (result.length === 0) {
-                      toast.warn(
-                        'No speech found in this recording',
-                        'Captions and AI editing need spoken audio. Silence cutting still works.',
-                      );
-                      return;
-                    }
-                    toast.success(`Transcribed ${result.length} lines`);
-                  })
-                }
-              >
-                {cues ? (cues.length > 0 ? `Re-transcribe (${cues.length} lines)` : 'No speech found — try again') : 'Transcribe speech'}
-              </Button>
-
-              {cues && cues.length > 0 ? (
-                <div className="mt-1.5 space-y-1.5">
-                  <Button
-                    size="sm"
-                    className="w-full justify-start"
-                    icon={<Captions size={12} />}
-                    onClick={() => {
-                      if (applyCaptions(cues)) toast.success('Captions added to the timeline');
-                    }}
-                  >
-                    Add captions
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="w-full justify-start"
-                    icon={<Scissors size={12} />}
-                    onClick={() => {
-                      const plan = planFillerCuts(wordsFromCues(cues), primary.clip);
-                      if (!applyCutPlan(plan)) {
-                        toast.info('No filler words found');
-                        return;
-                      }
-                      toast.success(`Removed ${plan.cuts.length} filler words`);
-                    }}
-                  >
-                    Remove filler words
-                  </Button>
-                </div>
-              ) : null}
-              <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-                {mode === 'local'
-                  ? `Whisper runs in this browser: no API key, no quota, and your audio never leaves the device. The model downloads once and is cached.${
-                      transcriptionReady ? ' If a build will not run on this device, Hosted is the reliable route.' : ''
-                    }`
-                  : transcriptionReady
-                    ? 'Sends the audio to your configured provider. Faster, and Whisper backends return word-level timings for karaoke captions.'
-                    : 'No hosted transcription key configured — use “On this device”, or set a free GROQ_API_KEY.'}
+            {/* Steps 2 and 3 live in the Transcript panel: captions and the recut
+                both read from a transcript, and it can come from a local model,
+                a hosted one, or pasted text. */}
+            <Step number={2} title="Transcript, captions and recut" note="Transcript panel">
+              <p className="mb-2 text-2xs leading-relaxed text-ink-2">
+                Everything that needs to know what was said — captions, AI Recut and Smart Auto-Cut — works from a
+                transcript. Get one from a local model, a hosted provider, or by pasting it in.
               </p>
-            </Step>
-
-            {/* Step 3 — needs an AI provider */}
-            <Step number={3} title="AI edit" note={aiReady ? 'Uses the transcript' : 'Needs an AI key'}>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Target length" hint="optional">
-                  <Input
-                    type="number"
-                    min={5}
-                    placeholder="auto"
-                    value={targetSeconds}
-                    onChange={(event) => setTargetSeconds(event.target.value === '' ? '' : Number(event.target.value))}
-                  />
-                </Field>
-                <Field label="Style">
-                  <Select value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full">
-                    <option value="">Tighten it up</option>
-                    <option value="Cut a punchy highlight reel of the best moments.">Highlights</option>
-                    <option value="Keep only the single strongest moment as a short clip.">Best moment</option>
-                    <option value="Keep the full explanation but remove rambling and repetition.">Full, tightened</option>
-                  </Select>
-                </Field>
-              </div>
-              <Textarea
-                rows={2}
-                className="mt-2 text-xs"
-                placeholder="Anything specific? e.g. 'cut the intro, keep the demo'"
-                value={goal.startsWith('Cut a') || goal.startsWith('Keep') ? '' : goal}
-                onChange={(event) => setGoal(event.target.value)}
-              />
-
-              <ProviderPicker value={aiProvider} onChange={setAiProvider} className="mt-2 w-full" />
-
-              {analysis && targetSeconds !== '' ? (
-                <Button
-                  size="sm"
-                  className="mt-2 w-full justify-start"
-                  icon={<Scissors size={12} />}
-                  onClick={() => {
-                    const plan = planTightenToTarget(analysis, primary.clip, duration, Number(targetSeconds));
-                    if (!applyCutPlan(plan)) {
-                      toast.info('Already at or under the target length');
-                      return;
-                    }
-                    toast.success(`Tightened by ${clock(plan.removedSeconds)}`, 'Longest pauses cut first.');
-                    setAnalysis(null);
-                  }}
-                >
-                  Tighten to {targetSeconds}s without AI
-                </Button>
-              ) : null}
-
               <Button
                 size="sm"
                 variant="primary"
-                className="mt-2 w-full justify-start"
-                icon={<Wand2 size={12} />}
-                loading={busy === 'plan'}
-                disabled={!aiReady || !cues || cues.length === 0}
-                onClick={() =>
-                  void run('plan', async () => {
-                    if (!cues || cues.length === 0) throw new Error('Transcribe the video first — the AI edits from what is said.');
-                    setStatus('Planning the edit…');
-                    const sourceDuration = primary.clip.sourceIn + primary.clip.duration * primary.clip.speed;
-                    const condensed = condenseCues(cues);
-                    if (condensed.length === 0) throw new Error('The transcript is empty — nothing to edit from.');
-
-                    const { plan } = await api.planEdit({
-                      // Guard the numeric fields the same way the API validates
-                      // them, so a stray value can never turn into a bare
-                      // "invalid request".
-                      durationSeconds: Math.max(1, sourceDuration),
-                      targetSeconds:
-                        targetSeconds === '' || Number(targetSeconds) < 5 ? undefined : Number(targetSeconds),
-                      goal: goal.trim() ? goal.trim().slice(0, 400) : undefined,
-                      provider: aiProvider === 'auto' ? undefined : aiProvider,
-                      cues: condensed,
-                    });
-
-                    setPlanSummary(plan.summary || plan.title || null);
-
-                    const cutPlan = planFromKeepRanges(plan.keep, primary.clip, sourceDuration);
-                    if (cutPlan.cuts.length > 0 && applyCutPlan(cutPlan)) {
-                      toast.success(`Cut down by ${clock(cutPlan.removedSeconds)}`, plan.title || undefined);
-                    } else {
-                      toast.info('The AI kept the whole recording', 'Nothing was cut.');
-                    }
-
-                    if (plan.callouts.length > 0) applyCallouts(plan.callouts);
-
-                    if (plan.brollCues.length > 0) {
-                      setStatus('Finding cutaway B-roll…');
-                      setSuggestions(await findCutawayBroll(plan.brollCues, aspect as AspectRatio));
-                    }
-                  })
-                }
+                className="w-full justify-start"
+                icon={<FileText size={12} />}
+                onClick={() => setPanel('transcript')}
               >
-                Edit my video
+                Open the Transcript panel
               </Button>
-
-              <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-                {!aiReady
-                  ? 'Blocked: no AI key on this deployment. Use “Tighten without AI” above, or add a key and redeploy.'
-                  : !cues || cues.length === 0
-                    ? 'Blocked: run step 2 first — the AI decides what to cut from what is said.'
-                    : 'Ready. The AI will keep the strongest segments and propose cutaways.'}
-              </p>
-              {planSummary ? <p className="mt-2 text-2xs leading-relaxed text-ink-2">{planSummary}</p> : null}
             </Step>
 
             {suggestions && suggestions.length > 0 ? (

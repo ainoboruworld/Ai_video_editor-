@@ -87,12 +87,14 @@ You decide what to keep, not what to invent. Rules:
 - Respect the requested target length. If no target is given, keep everything that earns its place.
 - Cut on natural sentence boundaries so the result does not sound clipped.
 - "brollCues" mark moments where the speaker describes something visual; the query must be a concrete stock-footage phrase, not an abstract idea.
-- "callouts" are short on-screen text (max 6 words) for the strongest points.`;
+- "callouts" are short on-screen text (max 6 words) for the strongest points.
+- "remove" lists what you are cutting and why, in plain language the user can check ("filler", "false start", "repeats the previous point"). Every second of the footage should be in exactly one of keep or remove.`;
 
 export const EDIT_PLAN_SCHEMA_HINT = `{
   "summary": string,
   "title": string,
   "keep": [{ "start": number, "end": number, "reason": string }],
+  "remove": [{ "start": number, "end": number, "reason": string }],
   "brollCues": [{ "start": number, "duration": number, "query": string, "reason": string }],
   "callouts": [{ "start": number, "duration": number, "text": string }]
 }`;
