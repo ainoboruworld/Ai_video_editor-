@@ -11,6 +11,7 @@
  */
 import { api, ApiClientError } from '@/lib/api-client';
 import type { Asset, AssetKind } from '@/types';
+import { MAX_THUMBNAIL_CHARS } from '@/lib/storage/limits';
 
 export const ACCEPTED_MIME = [
   'video/mp4',
@@ -243,5 +244,13 @@ async function grabPoster(video: HTMLVideoElement): Promise<string | null> {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.7);
+
+  // The poster rides inside the project document, so it has to fit the limit
+  // the server enforces. Detailed frames compress badly; step the quality down
+  // rather than let a decorative thumbnail make the project unsaveable.
+  for (const quality of [0.7, 0.5, 0.35, 0.2]) {
+    const encoded = canvas.toDataURL('image/jpeg', quality);
+    if (encoded.length <= MAX_THUMBNAIL_CHARS) return encoded;
+  }
+  return null;
 }

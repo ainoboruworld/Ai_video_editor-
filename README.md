@@ -27,6 +27,7 @@ auto-edit: your upload → silence + filler cuts → transcript → captions →
 | Auto-edit an upload: cut silence and filler words, recut to a target length, suggest cutaways | Working (silence cutting needs no key at all) |
 | Transcript from a local model, a hosted provider, or pasted by hand — then captions and recuts from it | Working (manual paste needs nothing) |
 | Recut proposals reviewed before they touch the timeline, with a no-AI Smart Auto-Cut fallback | Working |
+| Transitions placed on the joins a recut leaves behind — fade, dip, flash, blur, slide, zoom | Working |
 | B-roll search across Pexels / Pixabay / Unsplash, ranked for the project format | Working (needs at least one free API key) |
 | Auto-fit B-roll to scene length, assemble storyboard onto the timeline | Working |
 | Captions: from script, or transcribed from the real timeline audio | Working (browser Whisper with no key, or free Groq/Gemini) |

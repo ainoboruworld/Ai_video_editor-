@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_THUMBNAIL_CHARS } from '@/lib/storage/limits';
 
 /**
  * Validation for untrusted project documents arriving from the browser.
@@ -95,7 +96,7 @@ export const assetSchema = z
     kind: z.enum(['video', 'audio', 'image']),
     name: z.string().max(300),
     url: z.string().max(2000),
-    thumbnailUrl: z.string().max(2000).nullable(),
+    thumbnailUrl: z.string().max(MAX_THUMBNAIL_CHARS).nullable(),
     duration: finite.min(0).nullable(),
     width: z.number().int().min(0).nullable(),
     height: z.number().int().min(0).nullable(),

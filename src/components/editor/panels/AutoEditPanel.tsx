@@ -19,6 +19,7 @@ import {
   applyCallouts,
   applyCaptions,
   applyCutPlan,
+  countPlanTransitions,
   findCutawayBroll,
   insertCutaway,
   planFillerCuts,
@@ -33,6 +34,12 @@ import {
   type BrollSuggestion,
   type TranscriptionMode,
 } from '@/features/ai/autoEdit';
+import {
+  CUT_TRANSITIONS,
+  DEFAULT_CUT_TRANSITION,
+  cutTransitionLabel,
+  type CutTransitionChoice,
+} from '@/features/ai/cutTransitions';
 import { LOCAL_WHISPER_MODELS, isLocalWhisperSupported, type WhisperModelSize } from '@/features/captions/localWhisper';
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration, type AspectRatio } from '@/lib/engine';
@@ -70,6 +77,7 @@ export function AutoEditPanel() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [cues, setCues] = useState<CaptionCue[] | null>(null);
   const [keepPauses, setKeepPauses] = useState(false);
+  const [silenceTransition, setSilenceTransition] = useState<CutTransitionChoice>(DEFAULT_CUT_TRANSITION);
   const [mode, setMode] = useState<TranscriptionMode>('local');
   const [whisperModel, setWhisperModel] = useState<WhisperModelSize>('base');
   const localSupported = typeof window !== 'undefined' && isLocalWhisperSupported();
@@ -222,18 +230,47 @@ export function AutoEditPanel() {
                     />
                     Keep natural pauses (only cut gaps over 1.2s)
                   </label>
+
+                  <label className="mt-1.5 flex items-center gap-1.5 text-2xs text-ink-2">
+                    <span className="shrink-0">Transition at cuts</span>
+                    <Select
+                      value={silenceTransition.kind}
+                      onChange={(event) =>
+                        setSilenceTransition({
+                          ...silenceTransition,
+                          kind: event.target.value as CutTransitionChoice['kind'],
+                        })
+                      }
+                    >
+                      {CUT_TRANSITIONS.map((option) => (
+                        <option key={option.kind} value={option.kind}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+
                   <Button
                     size="sm"
                     variant="primary"
                     className="mt-2 w-full justify-start"
                     icon={<Scissors size={12} />}
                     onClick={() => {
-                      const plan = planSilenceCuts(analysis, primary.clip, { keepPauses });
+                      const plan = {
+                        ...planSilenceCuts(analysis, primary.clip, { keepPauses }),
+                        transition: silenceTransition,
+                      };
+                      const seams = countPlanTransitions(plan);
                       if (!applyCutPlan(plan)) {
                         toast.info('Nothing to cut', 'No silence long enough was found.');
                         return;
                       }
-                      toast.success(`Removed ${clock(plan.removedSeconds)} of silence`);
+                      toast.success(
+                        `Removed ${clock(plan.removedSeconds)} of silence`,
+                        seams > 0
+                          ? `${cutTransitionLabel(silenceTransition.kind)} on ${seams} ${seams === 1 ? 'join' : 'joins'}.`
+                          : undefined,
+                      );
                       setAnalysis(null);
                     }}
                   >

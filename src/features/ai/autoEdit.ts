@@ -23,6 +23,7 @@ import {
   type Range,
   type TranscriptWord,
 } from '@/features/analysis/audioAnalysis';
+import { countSeams, cutTransitionCommands, type CutTransitionChoice } from '@/features/ai/cutTransitions';
 import { newId } from '@/features/broll/assemble';
 import { api } from '@/lib/api-client';
 import { trackByRole, type CaptionStyleName, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
@@ -43,6 +44,8 @@ export interface CutPlan {
   cuts: Range[];
   removedSeconds: number;
   label: string;
+  /** What to put on the joins the cuts leave behind. Omitted means hard cuts. */
+  transition?: CutTransitionChoice;
 }
 
 /**
@@ -170,11 +173,40 @@ export async function analysePrimaryClip(signal?: AbortSignal): Promise<Analysis
   return { envelope, silences, speech, removableSeconds: totalDuration(silences) };
 }
 
-/** Applies a cut plan as one undoable edit. */
+/**
+ * Applies a cut plan as one undoable edit.
+ *
+ * When the plan carries a transition, the seams it creates are decorated in the
+ * same batch, so a single undo takes the cuts and the transitions back together
+ * rather than leaving half the edit behind.
+ */
 export function applyCutPlan(plan: CutPlan): boolean {
   if (plan.cuts.length === 0) return false;
   const state = useEditorStore.getState();
-  return state.apply(cutsToCommands(plan.cuts), plan.label);
+  const sequence = state.sequence;
+  if (!sequence) return false;
+
+  const cutCommands = cutsToCommands(plan.cuts);
+  const transitions = plan.transition
+    ? cutTransitionCommands({ sequence, cutCommands, cuts: plan.cuts, choice: plan.transition })
+    : [];
+
+  return state.apply([...cutCommands, ...transitions], plan.label);
+}
+
+/** How many seams a plan's transition would land on, for messaging before the edit. */
+export function countPlanTransitions(plan: CutPlan): number {
+  const state = useEditorStore.getState();
+  const sequence = state.sequence;
+  if (!sequence || !plan.transition || plan.cuts.length === 0) return 0;
+  return countSeams(
+    cutTransitionCommands({
+      sequence,
+      cutCommands: cutsToCommands(plan.cuts),
+      cuts: plan.cuts,
+      choice: plan.transition,
+    }),
+  );
 }
 
 /** Where transcription runs: on this device, or on a hosted provider. */

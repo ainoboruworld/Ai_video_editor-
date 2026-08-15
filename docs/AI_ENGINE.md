@@ -114,6 +114,26 @@ as one undoable step.
 pauses found in the audio, filler-only segments (`um`, `so`), very short
 fragments and obvious hedging phrases, and keeps everything else.
 
+### Transitions at the joins
+
+A cut leaves the two surviving halves butt-joined, which reads as a jump cut.
+The proposal carries a transition choice — hard cut, fade, dip to black, flash,
+blur, slide or zoom, with a length — and the seams are decorated in the same
+undoable batch as the cuts themselves, so undo takes both back together.
+
+The seams are found by replaying the cut commands against a throwaway copy of
+the sequence, then matching each cut's post-ripple position to the clips that
+actually survive; a cut running off either end of the timeline has only one side
+and is left alone, and a transition never takes more than 40% of the clip it
+sits on.
+
+Cross-dissolve is deliberately **not** offered here. Both sides of a recut seam
+come from the same source file and the media pool holds one element per asset,
+so there is no second decode to blend against — a "cross-dissolve" would be a
+dip wearing the wrong name. The kinds that are offered each do what they say:
+the opacity ramp applies to fades and dips, while slide, zoom and blur stay
+fully opaque and carry their own motion.
+
 Two safeguards matter here:
 
 - **The model cannot invent footage.** It returns timestamps into existing
