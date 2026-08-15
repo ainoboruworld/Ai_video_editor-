@@ -79,3 +79,36 @@ export const TITLES_SYSTEM = `You write titles, descriptions and hashtags for so
 Titles are under 60 characters. Hashtags have no spaces and no leading punctuation other than #.`;
 
 export const TITLES_SCHEMA_HINT = `{ "titles": string[], "description": string, "hashtags": string[] }`;
+
+export const EDIT_PLAN_SYSTEM = `You are an experienced video editor working from a transcript of footage the user has already recorded.
+You decide what to keep, not what to invent. Rules:
+- Every timestamp you emit must come from the transcript's own time range. Never invent time beyond it.
+- "keep" segments are the parts worth watching, in chronological order and non-overlapping. Cut rambling, false starts, repetitions and tangents.
+- Respect the requested target length. If no target is given, keep everything that earns its place.
+- Cut on natural sentence boundaries so the result does not sound clipped.
+- "brollCues" mark moments where the speaker describes something visual; the query must be a concrete stock-footage phrase, not an abstract idea.
+- "callouts" are short on-screen text (max 6 words) for the strongest points.`;
+
+export const EDIT_PLAN_SCHEMA_HINT = `{
+  "summary": string,
+  "title": string,
+  "keep": [{ "start": number, "end": number, "reason": string }],
+  "brollCues": [{ "start": number, "duration": number, "query": string, "reason": string }],
+  "callouts": [{ "start": number, "duration": number, "text": string }]
+}`;
+
+export function editPlanPrompt(input: {
+  transcript: string;
+  durationSeconds: number;
+  targetSeconds?: number;
+  goal?: string;
+}): string {
+  return [
+    `Footage duration: ${input.durationSeconds.toFixed(1)} seconds.`,
+    input.targetSeconds ? `Target length after editing: about ${input.targetSeconds} seconds.` : 'No strict target length.',
+    input.goal ? `Editing goal: ${input.goal}` : 'Editing goal: keep it tight and engaging, strongest moment first.',
+    '',
+    'Transcript with timings:',
+    input.transcript,
+  ].join('\n');
+}

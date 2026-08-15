@@ -70,6 +70,31 @@ Two real routes to captions:
 
 Both produce caption clips on the caption track, editable like any other clip.
 
+## Editing footage the user already has
+
+The second workflow — "edit my video" rather than "make me a video" — lives in
+`features/analysis`, `features/ai/autoEdit.ts` and `/api/ai/edit`. It is layered
+so each step works with whatever is configured:
+
+| Step | Needs | What happens |
+| --- | --- | --- |
+| Cut dead air | nothing | The browser decodes the audio, measures RMS loudness per 20 ms window and finds stretches below a threshold *relative to the recording's own peak*, so quiet and loud recordings both work untuned. Cuts are ripple deletes, padded so they do not clip word onsets. |
+| Transcript | a free AI key | The timeline audio is mixed to 16 kHz mono WAV in the browser and transcribed. Word timings drive filler-word removal (`um`, `you know`, …) and karaoke captions. |
+| AI edit | an AI provider | The model sees only the transcript with timings and returns which segments to keep, where a cutaway would help, and short on-screen callouts. |
+
+Two safeguards matter here:
+
+- **The model cannot invent footage.** It returns timestamps into existing
+  media; every one is clamped to the real duration server-side before the client
+  converts it to commands, so a hallucinated timestamp cannot reach the timeline.
+- **Source time is not timeline time.** A clip may be trimmed or sped up, so
+  `sourceToTimeline` maps analysis results through the clip's `sourceIn` and
+  `speed` before anything is cut, and cuts are applied last-to-first so a ripple
+  delete never invalidates the timestamps still queued behind it.
+
+Every step is one undoable command batch, and B-roll cutaways are only inserted
+after the user picks one.
+
 ## Other AI features
 
 - `/api/ai/suggest` — editing notes on the current timeline (pacing, coverage,

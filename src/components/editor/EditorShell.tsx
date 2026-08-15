@@ -20,6 +20,7 @@ import { BrollPanel } from './panels/BrollPanel';
 import { TextPanel } from './panels/TextPanel';
 import { AudioPanel } from './panels/AudioPanel';
 import { AIPanel } from './panels/AIPanel';
+import { AutoEditPanel } from './panels/AutoEditPanel';
 import { EffectsPanel } from './panels/EffectsPanel';
 import { TransitionsPanel } from './panels/TransitionsPanel';
 import { CaptionsPanel } from './panels/CaptionsPanel';
@@ -33,17 +34,19 @@ export function EditorShell({
   projectId,
   initialPrompt,
   initialDuration,
+  initialPanel,
 }: {
   projectId: string;
   initialPrompt?: string;
   initialDuration?: number;
+  initialPanel?: RailId;
 }) {
   const load = useEditorStore((state) => state.load);
   const loaded = useEditorStore((state) => state.loaded);
   const loadError = useEditorStore((state) => state.loadError);
   const setCapabilities = useEditorStore((state) => state.setCapabilities);
 
-  const [rail, setRail] = useState<RailId>(initialPrompt ? 'ai' : 'media');
+  const [rail, setRail] = useState<RailId>(initialPanel ?? (initialPrompt ? 'ai' : 'media'));
   const [exportOpen, setExportOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
 
@@ -104,6 +107,7 @@ export function EditorShell({
             {rail === 'media' ? <MediaPanel /> : null}
             {rail === 'broll' ? <BrollPanel /> : null}
             {rail === 'ai' ? <AIPanel initialPrompt={initialPrompt} initialDuration={initialDuration} /> : null}
+            {rail === 'autoedit' ? <AutoEditPanel /> : null}
             {rail === 'text' ? <TextPanel /> : null}
             {rail === 'captions' ? <CaptionsPanel /> : null}
             {rail === 'audio' ? <AudioPanel /> : null}

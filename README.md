@@ -8,8 +8,11 @@ Built with Next.js (App Router) and TypeScript end to end — no Python anywhere
 deployable to Vercel as-is, and **free to run**: every external service it uses
 has a genuinely free tier, and none of them is required.
 
+Two ways in, both real editing rather than a preview of one:
+
 ```
-prompt → AI script → storyboard → free B-roll → timeline → edit → captions → audio → preview → export
+generate:  prompt → AI script → storyboard → free B-roll → timeline → edit → captions → audio → export
+auto-edit: your upload → silence + filler cuts → transcript → captions → AI recut → cutaway B-roll → export
 ```
 
 ## What is actually here
@@ -21,9 +24,10 @@ prompt → AI script → storyboard → free B-roll → timeline → edit → ca
 | Real playback with A/V sync and a Web Audio mix (clip volume, fades, mute/solo) | Working |
 | Undo/redo over a command engine, keyboard shortcuts, autosave + crash recovery | Working |
 | Prompt → script → storyboard, editable scene by scene | Working (free Gemini or Groq key for written scripts; otherwise a labelled draft) |
+| Auto-edit an upload: cut silence and filler words, recut to a target length, suggest cutaways | Working (silence cutting needs no key at all) |
 | B-roll search across Pexels / Pixabay / Unsplash, ranked for the project format | Working (needs at least one free API key) |
 | Auto-fit B-roll to scene length, assemble storyboard onto the timeline | Working |
-| Captions: from script, or transcribed from the real timeline audio | Working (transcription on Groq's free Whisper tier) |
+| Captions: from script, or transcribed from the real timeline audio | Working (free Groq Whisper or Gemini audio) |
 | Export in the browser (canvas + audio → downloadable file) | Working, no external service |
 | Cloud render with Remotion (frame-accurate H.264) | Working, needs a worker host (`RENDER_WORKER_URL`) |
 | Uploads straight to object storage | Working, needs S3-compatible storage |
@@ -63,7 +67,7 @@ See [`.env.example`](.env.example) for the annotated list and
 
 - **B-roll**: `PEXELS_API_KEY` (free, start here), `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY`
 - **AI**: `GEMINI_API_KEY` or `GROQ_API_KEY` — both free tiers (`OPENAI_API_KEY` is supported but never required)
-- **Captions**: `GROQ_API_KEY` also powers free Whisper transcription
+- **Captions & auto-edit**: `GROQ_API_KEY` (word-level Whisper timings) or `GEMINI_API_KEY` (sentence-level)
 - **Database**: `DATABASE_URL` (Postgres) — otherwise filesystem storage
 - **Object storage**: `STORAGE_*` — otherwise uploads stay in the browser tab
 - **Cloud render**: `RENDER_WORKER_URL`, `RENDER_WORKER_TOKEN`

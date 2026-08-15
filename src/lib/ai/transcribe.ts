@@ -1,7 +1,9 @@
 import 'server-only';
+import { z } from 'zod';
 import { env } from '@/lib/env';
 import { GROQ_BASE } from './groq';
-import { ApiError } from '@/lib/http';
+import { extractJson } from './types';
+import { ApiError, fetchWithRetry } from '@/lib/http';
 import type { CaptionCue } from '@/types';
 
 /**
@@ -130,7 +132,99 @@ export function toCues(body: { words?: WhisperWord[]; segments?: WhisperSegment[
 }
 
 // Free tier first.
-const transcriptionProviders: TranscriptionProvider[] = [new GroqTranscription(), new OpenAiTranscription()];
+/**
+ * Gemini can transcribe audio directly, which matters because it is the one
+ * free key that also drives scripts and editing — a user with only
+ * GEMINI_API_KEY still gets captions and AI editing.
+ *
+ * It returns sentence-level timings rather than Whisper's word-level ones, so
+ * it sits last: karaoke highlighting degrades to per-cue highlighting.
+ */
+export class GeminiTranscription implements TranscriptionProvider {
+  readonly name = 'gemini-audio';
+
+  isConfigured(): boolean {
+    return Boolean(env.GEMINI_API_KEY);
+  }
+
+  async transcribe(audio: Blob, _filename: string, language?: string): Promise<CaptionCue[]> {
+    const key = env.GEMINI_API_KEY;
+    if (!key) throw new ApiError(400, 'GEMINI_API_KEY is not configured', 'no_transcription_provider');
+
+    const bytes = new Uint8Array(await audio.arrayBuffer());
+    if (bytes.byteLength > 18 * 1024 * 1024) {
+      throw new ApiError(
+        413,
+        'This audio is too long for Gemini transcription. Caption in shorter sections, or set a free GROQ_API_KEY.',
+        'too_large',
+      );
+    }
+
+    const instruction = [
+      'Transcribe this audio verbatim.',
+      'Split it into caption cues of at most 8 words each.',
+      'Timestamps are seconds from the start of the audio, as numbers.',
+      'Cues must be in order and must not overlap.',
+      language ? `The audio is in ${language}.` : '',
+      'Return ONLY JSON: { "cues": [{ "text": string, "start": number, "end": number }] }',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const res = await fetchWithRetry(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        env.GEMINI_MODEL,
+      )}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: instruction },
+                { inlineData: { mimeType: audio.type || 'audio/wav', data: toBase64(bytes) } },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0, maxOutputTokens: 8000, responseMimeType: 'application/json' },
+        }),
+      },
+      { timeoutMs: 55_000, attempts: 2 },
+    );
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new ApiError(502, `Gemini transcription failed: ${detail.slice(0, 300)}`, 'transcription_failed');
+    }
+
+    const body = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    const text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+    const parsed = geminiCuesSchema.safeParse(extractJson(text));
+    if (!parsed.success) throw new ApiError(502, 'Gemini returned an unusable transcript', 'transcription_failed');
+
+    return parsed.data.cues
+      .filter((cue) => cue.end > cue.start && cue.text.trim().length > 0)
+      .map((cue) => ({ text: cue.text.trim(), start: cue.start, end: cue.end, words: [] }));
+  }
+}
+
+const geminiCuesSchema = z.object({
+  cues: z.array(z.object({ text: z.string().max(400), start: z.number().min(0), end: z.number().min(0) })).max(2000),
+});
+
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64');
+}
+
+// Whisper-compatible providers first (word-level timings), Gemini as the
+// fallback that keeps a Gemini-only setup fully functional.
+const transcriptionProviders: TranscriptionProvider[] = [
+  new GroqTranscription(),
+  new OpenAiTranscription(),
+  new GeminiTranscription(),
+];
 
 export function activeTranscriptionProvider(): TranscriptionProvider | null {
   return transcriptionProviders.find((p) => p.isConfigured()) ?? null;
