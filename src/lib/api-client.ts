@@ -37,9 +37,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `${response.status} ${response.statusText}`;
     let code = 'error';
     try {
-      const body = (await response.json()) as { error?: string; code?: string };
+      const body = (await response.json()) as {
+        error?: string;
+        code?: string;
+        details?: { fieldErrors?: Record<string, string[]> };
+      };
       if (body.error) message = body.error;
       if (body.code) code = body.code;
+
+      // A bare "Invalid request body" is a dead end for the user. When the
+      // server says which fields failed, say so.
+      const fields = body.details?.fieldErrors;
+      if (fields) {
+        const summary = Object.entries(fields)
+          .map(([field, errors]) => `${field}: ${errors.join(', ')}`)
+          .join('; ');
+        if (summary) message = `${message} — ${summary}`;
+      }
     } catch {
       // Non-JSON error body.
     }
