@@ -177,6 +177,11 @@ export function drawFrame(
       ctx.restore();
       continue;
     }
+    if (clip.kind === 'graphic') {
+      drawGraphic(ctx, clip, localTime, seq);
+      ctx.restore();
+      continue;
+    }
 
     const source = context.resolve(clip);
     if (!source) {
@@ -270,6 +275,133 @@ function paintDip(ctx: CanvasRenderingContext2D, clip: Clip, localTime: number, 
   if (clip.transitionOut && remaining < clip.transitionOut.duration) {
     dip(clip.transitionOut.kind, remaining / clip.transitionOut.duration);
   }
+}
+
+
+// ------------------------------------------------------------- graphics ---
+
+/**
+ * On-screen graphics: the number, the list or the pull-quote a talking head is
+ * describing. Drawn here rather than composited from an image so they stay
+ * sharp at any export size, restyle instantly, and remain editable as text.
+ */
+function drawGraphic(ctx: CanvasRenderingContext2D, clip: Clip, localTime: number, seq: Sequence): void {
+  const graphic = clip.graphic;
+  if (!graphic) return;
+
+  const unit = seq.height / 1920;
+  const scale = Math.max(0.5, unit);
+  const pad = 44 * scale;
+  const cardWidth = Math.min(seq.width * 0.62, 760 * scale);
+
+  // A short slide-and-fade on entry and exit. Long enough to read as motion,
+  // short enough that it is never what the viewer is looking at.
+  const entry = Math.min(0.45, clip.duration / 3);
+  const t = Math.max(0, Math.min(1, localTime / entry));
+  const leaving = Math.max(0, Math.min(1, (clip.duration - localTime) / entry));
+  const eased = easeInOut(t) * easeInOut(leaving);
+  if (eased <= 0.002) return;
+
+  const lines = graphicLines(ctx, graphic, cardWidth - pad * 2, scale);
+  const cardHeight = lines.reduce((total, line) => total + line.height, 0) + pad * 2;
+
+  const x =
+    graphic.position === 'left'
+      ? seq.width * 0.07
+      : graphic.position === 'right'
+        ? seq.width * 0.93 - cardWidth
+        : seq.width / 2 - cardWidth / 2;
+  const y = seq.height * 0.5 - cardHeight / 2 + (clip.transform.y || 0);
+  const slide = (1 - eased) * 40 * scale * (graphic.position === 'right' ? 1 : -1);
+
+  ctx.save();
+  ctx.globalAlpha *= eased;
+  ctx.translate(x + slide, y);
+
+  // Card
+  ctx.fillStyle = 'rgba(10,10,14,0.82)';
+  roundRectPath(ctx, 0, 0, cardWidth, cardHeight, 22 * scale);
+  ctx.fill();
+
+  // Accent edge, which is what makes it read as designed rather than as a box.
+  ctx.fillStyle = graphic.accent;
+  roundRectPath(ctx, 0, 0, 7 * scale, cardHeight, 4 * scale);
+  ctx.fill();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  let cursor = pad;
+  for (const line of lines) {
+    ctx.font = line.font;
+    ctx.fillStyle = line.color;
+    if (line.bullet) {
+      ctx.fillStyle = graphic.accent;
+      ctx.beginPath();
+      ctx.arc(pad + 7 * scale, cursor + line.height * 0.38, 6 * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = line.color;
+      ctx.fillText(line.text, pad + 28 * scale, cursor);
+    } else {
+      ctx.fillText(line.text, pad, cursor);
+    }
+    cursor += line.height;
+  }
+
+  ctx.restore();
+}
+
+interface GraphicLine {
+  text: string;
+  font: string;
+  color: string;
+  height: number;
+  bullet?: boolean;
+}
+
+/** Lays a graphic out into drawable lines, wrapping anything too wide. */
+function graphicLines(
+  ctx: CanvasRenderingContext2D,
+  graphic: NonNullable<Clip['graphic']>,
+  maxWidth: number,
+  scale: number,
+): GraphicLine[] {
+  const lines: GraphicLine[] = [];
+  const label = `700 ${Math.round(26 * scale)}px Inter, system-ui, sans-serif`;
+  const body = `600 ${Math.round(32 * scale)}px Inter, system-ui, sans-serif`;
+  const headline = `800 ${Math.round(graphic.kind === 'quote' ? 46 : 96) * scale}px Inter, system-ui, sans-serif`;
+
+  if (graphic.title.trim()) {
+    ctx.font = label;
+    for (const text of wrapLines(ctx, graphic.title.toUpperCase(), maxWidth)) {
+      lines.push({ text, font: label, color: graphic.accent, height: 38 * scale });
+    }
+  }
+
+  if (graphic.value.trim()) {
+    ctx.font = headline;
+    const value = graphic.kind === 'quote' ? `“${graphic.value}”` : graphic.value;
+    for (const text of wrapLines(ctx, value, maxWidth)) {
+      lines.push({ text, font: headline, color: '#ffffff', height: (graphic.kind === 'quote' ? 60 : 112) * scale });
+    }
+  }
+
+  if (graphic.kind === 'list') {
+    ctx.font = body;
+    for (const item of graphic.items.slice(0, 6)) {
+      for (const [index, text] of wrapLines(ctx, item, maxWidth - 28 * scale).entries()) {
+        lines.push({ text, font: body, color: '#e8e8ef', height: 46 * scale, bullet: index === 0 });
+      }
+    }
+  }
+
+  if (graphic.caption.trim()) {
+    ctx.font = body;
+    for (const text of wrapLines(ctx, graphic.caption, maxWidth)) {
+      lines.push({ text, font: body, color: '#b9b9c6', height: 44 * scale });
+    }
+  }
+
+  return lines;
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -432,7 +564,18 @@ export const CAPTION_PRESETS: Record<string, CaptionPreset> = {
 };
 
 function drawCaption(ctx: CanvasRenderingContext2D, clip: Clip, localTime: number, seq: Sequence): void {
-  const preset = CAPTION_PRESETS[clip.captionStyle ?? 'bold'] ?? CAPTION_PRESETS.bold!;
+  const base = CAPTION_PRESETS[clip.captionStyle ?? 'bold'] ?? CAPTION_PRESETS.bold!;
+  // The preset sets the shape, the overrides set the colours. `undefined` means
+  // "not overridden"; `null` is a real choice — no box, no outline, no
+  // highlight — so the two cannot be collapsed.
+  const colors = clip.captionColors;
+  const preset: CaptionPreset = {
+    ...base,
+    color: colors?.text ?? base.color,
+    highlight: colors?.highlight === undefined ? base.highlight : colors.highlight,
+    background: colors?.background === undefined ? base.background : colors.background,
+    stroke: colors?.stroke === undefined ? base.stroke : colors.stroke,
+  };
   const raw = clip.text ?? '';
   if (!raw) return;
   const scaleFactor = seq.height / 1920;

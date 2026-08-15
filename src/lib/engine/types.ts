@@ -20,7 +20,7 @@ export type TrackRole =
   | 'music'
   | 'voiceover';
 
-export type ClipKind = 'video' | 'audio' | 'image' | 'text' | 'caption';
+export type ClipKind = 'video' | 'audio' | 'image' | 'text' | 'caption' | 'graphic';
 
 export interface Transform {
   x: number; // px offset from center, in sequence coordinate space
@@ -111,6 +111,45 @@ export const DEFAULT_FILTERS: Filters = {
   vignette: false,
 };
 
+/**
+ * Colour overrides for a caption clip.
+ *
+ * The preset decides the shape of the caption — size, weight, position,
+ * whether it shouts — and these decide its colours. Kept separate so changing
+ * the palette never quietly changes the layout, and so a caption that has been
+ * recoloured keeps its new colours when the preset is swapped.
+ */
+export interface CaptionColors {
+  text?: string;
+  /** The word currently being spoken. Null turns karaoke highlighting off. */
+  highlight?: string | null;
+  /** Box behind the text. Null for no box. */
+  background?: string | null;
+  /** Outline, which is what keeps white text readable over bright footage. */
+  stroke?: string | null;
+}
+
+export type GraphicKind = 'stat' | 'list' | 'quote';
+
+/**
+ * An on-screen graphic: the number, the list or the pull-quote a talking head
+ * is describing. Drawn by the compositor rather than composited from an image,
+ * so it stays sharp at any export size and stays editable as text.
+ */
+export interface Graphic {
+  kind: GraphicKind;
+  /** Small label above the headline. */
+  title: string;
+  /** The headline itself — the number, or the quote. */
+  value: string;
+  /** Small line underneath. */
+  caption: string;
+  /** Bullets, for the list kind. */
+  items: string[];
+  accent: string;
+  position: 'left' | 'right' | 'centre';
+}
+
 export interface Clip {
   id: string;
   kind: ClipKind;
@@ -140,7 +179,11 @@ export interface Clip {
   textStyle: TextStyle | null;
   textAnimation: TextAnimation;
   captionStyle: CaptionStyleName | null;
+  /** Per-clip colour overrides on top of the caption preset. */
+  captionColors: CaptionColors | null;
   captionWords: CaptionWord[] | null;
+  /** For graphic clips. */
+  graphic: Graphic | null;
   /** B-roll display mode when on an overlay track. */
   brollMode: 'fullscreen' | 'cutaway' | 'overlay' | 'pip' | null;
 }
@@ -230,7 +273,9 @@ export function makeClip(partial: Partial<Clip> & Pick<Clip, 'id' | 'kind' | 'st
     textStyle: null,
     textAnimation: 'none',
     captionStyle: null,
+    captionColors: null,
     captionWords: null,
+    graphic: null,
     brollMode: null,
     ...partial,
   };

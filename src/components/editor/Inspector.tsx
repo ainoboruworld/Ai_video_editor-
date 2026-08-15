@@ -11,7 +11,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { CAPTION_PRESETS } from '@/features/timeline/compositor';
-import type { CaptionStyleName, TextAnimation, TransitionKind } from '@/lib/engine';
+import type { CaptionStyleName, Clip, TextAnimation, TransitionKind } from '@/lib/engine';
 import { useEditorStore, useSelectedClip } from '@/state/editorStore';
 import { deleteSelection } from '@/features/timeline/operations';
 import { Button, EmptyState, Field, IconButton, Input, PanelHeader, Select, Slider, Textarea, Toggle } from '@/components/ui';
@@ -32,6 +32,8 @@ const TEXT_ANIMATIONS: TextAnimation[] = ['none', 'fade', 'slide', 'pop', 'scale
 export function Inspector() {
   const selected = useSelectedClip();
   const apply = useEditorStore((state) => state.apply);
+  const setGraphic = (clipId: string, patch: Partial<NonNullable<Clip['graphic']>>) =>
+    apply({ type: 'SET_GRAPHIC', clipId, graphic: patch }, 'Edit graphic');
   const assets = useEditorStore((state) => state.assets);
   const asset = useMemo(
     () => (selected?.clip.assetId ? assets.find((a) => a.id === selected.clip.assetId) ?? null : null),
@@ -371,6 +373,64 @@ export function Inspector() {
                 ))}
               </Select>
             </Field>
+          </Section>
+        ) : null}
+
+        {clip.kind === 'graphic' && clip.graphic ? (
+          <Section title="Infographic" icon={<TypeIcon size={12} />}>
+            <Field label="Label">
+              <Input
+                value={clip.graphic.title}
+                onChange={(event) => setGraphic(clip.id, { title: event.target.value })}
+              />
+            </Field>
+            {clip.graphic.kind === 'list' ? (
+              <Field label="Points (one per line)" className="mt-2">
+                <Textarea
+                  rows={4}
+                  value={clip.graphic.items.join('\n')}
+                  onChange={(event) =>
+                    setGraphic(clip.id, { items: event.target.value.split('\n').filter((line) => line.trim()) })
+                  }
+                />
+              </Field>
+            ) : (
+              <Field label={clip.graphic.kind === 'quote' ? 'Quote' : 'Number'} className="mt-2">
+                <Textarea
+                  rows={2}
+                  value={clip.graphic.value}
+                  onChange={(event) => setGraphic(clip.id, { value: event.target.value })}
+                />
+              </Field>
+            )}
+            <Field label="Note" className="mt-2">
+              <Input
+                value={clip.graphic.caption}
+                onChange={(event) => setGraphic(clip.id, { caption: event.target.value })}
+              />
+            </Field>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Field label="Position">
+                <Select
+                  value={clip.graphic.position}
+                  onChange={(event) =>
+                    setGraphic(clip.id, { position: event.target.value as 'left' | 'right' | 'centre' })
+                  }
+                >
+                  <option value="left">Left</option>
+                  <option value="centre">Centre</option>
+                  <option value="right">Right</option>
+                </Select>
+              </Field>
+              <Field label="Accent">
+                <input
+                  type="color"
+                  value={clip.graphic.accent}
+                  onChange={(event) => setGraphic(clip.id, { accent: event.target.value })}
+                  className="h-7 w-full cursor-pointer rounded border border-line bg-bg-2 p-0.5"
+                />
+              </Field>
+            </div>
           </Section>
         ) : null}
 

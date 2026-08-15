@@ -79,6 +79,31 @@ Two real routes to captions:
 
 Both produce caption clips on the caption track, editable like any other clip.
 
+Colour is separate from preset. The preset decides the shape — size, weight,
+position, whether it shouts — and `captionColors` decides text, highlight,
+outline and box on top of it. Keeping them apart means recolouring never moves
+anything and swapping preset never loses a colour choice. `undefined` there
+means "not overridden" and `null` means "off", which is why removing an outline
+survives instead of falling back to the preset's.
+
+## Infographics
+
+The number a talking head describes is one the viewer cannot see.
+`features/edit/graphics.ts` reads the transcript for concrete figures
+(percentages, money, multipliers, counted nouns), explicit enumerations
+("three things…", with the items taken from the sentences that follow) and
+sentences the speaker flagged as their own takeaway — and proposes a stat, list
+or pull-quote timed to that sentence.
+
+It proposes and never places: a graphic over a sentence that did not need one is
+the same clutter as B-roll over an abstract point. Detection is deliberately
+narrow for the same reason.
+
+Graphics are drawn by the compositor rather than composited from an image, so
+they stay sharp at any export size and remain editable as text in the Inspector.
+They live on the text track and refuse to stack — two at the same moment would
+draw over each other and only one could be selected.
+
 ## The edit itself
 
 The workflow lives in `features/edit`, `features/analysis` and

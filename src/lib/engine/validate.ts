@@ -24,6 +24,9 @@ const COMMAND_TYPES = new Set<EditorCommand['type']>([
   'ADD_TEXT',
   'ADD_CAPTION',
   'SET_CAPTION_STYLE',
+  'SET_CAPTION_COLORS',
+  'ADD_GRAPHIC',
+  'SET_GRAPHIC',
   'ADD_BROLL',
   'ADD_TRANSITION',
   'SET_BROLL_MODE',
@@ -60,11 +63,11 @@ export function validateCommand(seq: Sequence, cmd: unknown): ValidationResult {
     for (const cl of t.clips) clipIds.add(cl.id);
   }
 
-  const needClip = ['DELETE_CLIP', 'MOVE_CLIP', 'TRIM_CLIP', 'SPLIT_CLIP', 'DUPLICATE_CLIP', 'CHANGE_SPEED', 'CHANGE_VOLUME', 'SET_FADE', 'CHANGE_TRANSFORM', 'SET_FILTERS', 'SET_CROP', 'SET_TEXT', 'SET_CAPTION_STYLE', 'ADD_TRANSITION', 'SET_KEYFRAMES', 'SET_BROLL_MODE', 'RENAME_CLIP'];
+  const needClip = ['DELETE_CLIP', 'MOVE_CLIP', 'TRIM_CLIP', 'SPLIT_CLIP', 'DUPLICATE_CLIP', 'CHANGE_SPEED', 'CHANGE_VOLUME', 'SET_FADE', 'CHANGE_TRANSFORM', 'SET_FILTERS', 'SET_CROP', 'SET_TEXT', 'SET_CAPTION_STYLE', 'SET_CAPTION_COLORS', 'SET_GRAPHIC', 'ADD_TRANSITION', 'SET_KEYFRAMES', 'SET_BROLL_MODE', 'RENAME_CLIP'];
   if (needClip.includes(c.type as string)) {
     if (typeof c.clipId !== 'string' || !clipIds.has(c.clipId)) errors.push(`clipId does not exist: ${String(c.clipId)}`);
   }
-  const needTrack = ['ADD_CLIP', 'ADD_TEXT', 'ADD_CAPTION', 'ADD_BROLL', 'SET_TRACK_STATE'];
+  const needTrack = ['ADD_CLIP', 'ADD_TEXT', 'ADD_CAPTION', 'ADD_BROLL', 'ADD_GRAPHIC', 'SET_TRACK_STATE'];
   if (needTrack.includes(c.type as string)) {
     if (typeof c.trackId !== 'string' || !trackIds.has(c.trackId)) errors.push(`trackId does not exist: ${String(c.trackId)}`);
   }
