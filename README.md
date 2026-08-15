@@ -66,7 +66,7 @@ See [`.env.example`](.env.example) for the annotated list and
 [docs/SETUP.md](docs/SETUP.md) for where to get each key.
 
 - **B-roll**: `PEXELS_API_KEY` (free, start here), `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY`
-- **AI**: `GROQ_API_KEY`, `OPENROUTER_API_KEY` (free Qwen models) or `GEMINI_API_KEY` — all free tiers (`OPENAI_API_KEY` is supported but never required)
+- **AI**: any of `GROQ_API_KEY`, `OPENROUTER_API_KEY` (free Qwen), `CLOUDFLARE_*`, `HF_TOKEN`, `OLLAMA_BASE_URL` (self-hosted) or `GEMINI_API_KEY` — all free; a per-task picker appears when several are set
 - **Captions & auto-edit**: `GROQ_API_KEY` (word-level Whisper timings), `GEMINI_API_KEY` (sentence-level), or **no key at all** — Whisper also runs in the browser
 - **Database**: `DATABASE_URL` (Postgres) — otherwise filesystem storage
 - **Object storage**: `STORAGE_*` — otherwise uploads stay in the browser tab

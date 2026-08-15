@@ -38,6 +38,8 @@ import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration, type AspectRatio } from '@/lib/engine';
 import { Badge, Button, EmptyState, Field, Input, PanelHeader, ProgressBar, Select, Textarea } from '@/components/ui';
 import { AlertTriangle } from 'lucide-react';
+import { ProviderPicker } from '@/components/editor/ProviderPicker';
+import type { AiProviderName } from '@/types';
 import { clock } from '@/lib/format';
 import { toast } from '@/state/toastStore';
 import type { CaptionCue } from '@/types';
@@ -75,6 +77,7 @@ export function AutoEditPanel() {
   const [goal, setGoal] = useState('');
   const [suggestions, setSuggestions] = useState<BrollSuggestion[] | null>(null);
   const [planSummary, setPlanSummary] = useState<string | null>(null);
+  const [aiProvider, setAiProvider] = useState<AiProviderName | 'auto'>('auto');
 
   const primary = sequence ? primaryClip(sequence) : null;
   const duration = sequence ? sequenceDuration(sequence) : 0;
@@ -387,6 +390,8 @@ export function AutoEditPanel() {
                 onChange={(event) => setGoal(event.target.value)}
               />
 
+              <ProviderPicker value={aiProvider} onChange={setAiProvider} className="mt-2 w-full" />
+
               {analysis && targetSeconds !== '' ? (
                 <Button
                   size="sm"
@@ -429,6 +434,7 @@ export function AutoEditPanel() {
                       targetSeconds:
                         targetSeconds === '' || Number(targetSeconds) < 5 ? undefined : Number(targetSeconds),
                       goal: goal.trim() ? goal.trim().slice(0, 400) : undefined,
+                      provider: aiProvider === 'auto' ? undefined : aiProvider,
                       cues: condensed,
                     });
 

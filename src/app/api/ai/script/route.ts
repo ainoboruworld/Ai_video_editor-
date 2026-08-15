@@ -14,6 +14,10 @@ const schema = z.object({
   tone: z.string().max(80).optional(),
   language: z.string().max(20).optional(),
   sceneCount: z.number().int().min(2).max(20).optional(),
+  provider: z
+    .enum(['groq', 'openrouter', 'cloudflare', 'huggingface', 'ollama', 'gemini', 'openai', 'offline'])
+    .optional(),
+
 });
 
 /** Prompt → hook, script, scene breakdown, on-screen text and B-roll queries. */

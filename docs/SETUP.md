@@ -26,6 +26,9 @@ prompts produce a labelled structural draft, and export runs in the browser.
 | `UNSPLASH_ACCESS_KEY` | https://unsplash.com/developers | Yes (demo tier) | Photo B-roll and stills |
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Yes | Scripts, storyboards, captions, edit review |
 | `OPENROUTER_API_KEY` | https://openrouter.ai/keys | Yes (`:free` models) | Same AI features via free Qwen models |
+| `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | https://dash.cloudflare.com | Yes (daily allowance) | Text models and Whisper transcription |
+| `HF_TOKEN` | https://huggingface.co/settings/tokens | Yes | Open Qwen/Llama weights and Whisper |
+| `OLLAMA_BASE_URL` | self-hosted | Unlimited, local | Any model you run yourself; no key |
 | `GROQ_API_KEY` | https://console.groq.com/keys | Yes | Same AI features, plus free Whisper transcription for automatic captions |
 | `OPENAI_API_KEY` | https://platform.openai.com | No (paid) | Optional alternative for the same features — never required |
 
@@ -59,8 +62,15 @@ edit planning. They differ in how much they give you:
   is billed as tokens from the same allowance as the script calls, so a long
   recording can exhaust it. Provider order puts it behind the other two.
 
-Provider preference is Groq → OpenRouter → Gemini → OpenAI, and transcription
-prefers Whisper backends over Gemini audio. `AI_PROVIDER` forces a specific one.
+Provider preference is Groq → OpenRouter → Cloudflare → Hugging Face → Ollama →
+Gemini → OpenAI, and transcription prefers Whisper backends over Gemini audio.
+`AI_PROVIDER` forces a specific one globally, and the editor shows a per-task
+provider picker whenever more than one is configured — so you can spend a
+generous tier on the heavy jobs and keep a smaller quota for something else.
+
+None of them is required. With no key at all you still get browser Whisper for
+transcription, silence-based auto-editing, and a labelled structural draft for
+scripts.
 
 ## Optional infrastructure
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { activeProvider, describeAiError } from '@/lib/ai';
+import { describeAiError, resolveProvider } from '@/lib/ai';
 import { EDIT_PLAN_SCHEMA_HINT, EDIT_PLAN_SYSTEM, editPlanPrompt } from '@/lib/ai/prompts';
 import { editPlanSchema } from '@/lib/ai/schemas';
 import { ApiError, handle, ok, parseBody } from '@/lib/http';
@@ -13,6 +13,10 @@ const schema = z.object({
   durationSeconds: z.number().min(1).max(60 * 60 * 4),
   targetSeconds: z.number().min(5).max(60 * 60).optional(),
   goal: z.string().max(400).optional(),
+  provider: z
+    .enum(['groq', 'openrouter', 'cloudflare', 'huggingface', 'ollama', 'gemini', 'openai', 'offline'])
+    .optional(),
+
   cues: z
     .array(z.object({ start: z.number().min(0), end: z.number().min(0), text: z.string().max(600) }))
     .min(1)
@@ -29,7 +33,7 @@ const schema = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   return handle(async () => {
     const input = await parseBody(request, schema);
-    const provider = activeProvider();
+    const provider = resolveProvider(input.provider);
     if (!provider) {
       throw new ApiError(
         503,
