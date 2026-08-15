@@ -1,6 +1,6 @@
 import 'server-only';
 import { env } from '@/lib/env';
-import { fetchWithTimeout } from '@/lib/http';
+import { fetchWithRetry } from '@/lib/http';
 import { AiError, extractJson, type AiProvider, type JsonRequest } from './types';
 
 /**
@@ -24,7 +24,7 @@ export class GroqProvider implements AiProvider {
     const key = env.GROQ_API_KEY;
     if (!key) throw new AiError('GROQ_API_KEY is not configured', 'groq');
 
-    const res = await fetchWithTimeout(
+    const res = await fetchWithRetry(
       `${GROQ_BASE}/chat/completions`,
       {
         method: 'POST',
@@ -40,7 +40,7 @@ export class GroqProvider implements AiProvider {
           ],
         }),
       },
-      45_000,
+      { timeoutMs: 45_000, attempts: 3 },
     );
 
     if (!res.ok) {

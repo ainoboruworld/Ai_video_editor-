@@ -1,6 +1,6 @@
 import 'server-only';
 import { env } from '@/lib/env';
-import { fetchWithTimeout } from '@/lib/http';
+import { fetchWithRetry } from '@/lib/http';
 import { AiError, extractJson, type AiProvider, type JsonRequest } from './types';
 
 export class OpenAiProvider implements AiProvider {
@@ -15,7 +15,7 @@ export class OpenAiProvider implements AiProvider {
     const key = env.OPENAI_API_KEY;
     if (!key) throw new AiError('OPENAI_API_KEY is not configured', 'openai');
 
-    const res = await fetchWithTimeout(
+    const res = await fetchWithRetry(
       'https://api.openai.com/v1/chat/completions',
       {
         method: 'POST',
@@ -31,7 +31,7 @@ export class OpenAiProvider implements AiProvider {
           ],
         }),
       },
-      45_000,
+      { timeoutMs: 45_000, attempts: 3 },
     );
 
     if (!res.ok) {

@@ -2,7 +2,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { fetchWithTimeout } from '@/lib/http';
 import type { MediaSearchRequest, StockMediaItem } from '@/types';
-import { orientationOf, type MediaProvider } from './types';
+import { orientationOf, providerError, type MediaProvider } from './types';
 
 const API = 'https://pixabay.com/api';
 
@@ -65,7 +65,7 @@ export class PixabayProvider implements MediaProvider {
       safesearch: 'true',
     });
     const res = await fetchWithTimeout(`${API}/videos/?${params}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`Pixabay video search failed (${res.status})`);
+    if (!res.ok) throw providerError('Pixabay', 'PIXABAY_API_KEY', res.status, 'video search');
     const body = (await res.json()) as { hits?: PixabayVideo[] };
     return (body.hits ?? []).flatMap((hit): StockMediaItem[] => {
       const streams = Object.values(hit.videos ?? {}).filter((s) => s?.url);
@@ -111,7 +111,7 @@ export class PixabayProvider implements MediaProvider {
     if (request.orientation === 'landscape') params.set('orientation', 'horizontal');
     if (request.orientation === 'portrait') params.set('orientation', 'vertical');
     const res = await fetchWithTimeout(`${API}/?${params}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`Pixabay image search failed (${res.status})`);
+    if (!res.ok) throw providerError('Pixabay', 'PIXABAY_API_KEY', res.status, 'image search');
     const body = (await res.json()) as { hits?: PixabayImage[] };
     return (body.hits ?? []).map((hit) => ({
       id: `pixabay-image-${hit.id}`,
