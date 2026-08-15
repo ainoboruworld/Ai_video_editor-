@@ -165,7 +165,7 @@ export async function probeMedia(file: File, kind: AssetKind): Promise<ProbeResu
     setTimeout(done, 6000);
   });
 
-  const duration = Number.isFinite(element.duration) ? element.duration : null;
+  const duration = await resolveDuration(element);
   if (kind === 'audio' || !(element instanceof HTMLVideoElement)) {
     return { objectUrl, duration, width: null, height: null, thumbnailUrl: null };
   }
@@ -178,6 +178,46 @@ export async function probeMedia(file: File, kind: AssetKind): Promise<ProbeResu
     height: element.videoHeight || null,
     thumbnailUrl,
   };
+}
+
+/**
+ * Reads a media element's true duration.
+ *
+ * Files recorded by MediaRecorder — including this app's own browser exports —
+ * are written as a live stream and carry no duration in the header, so browsers
+ * report `Infinity` until the whole file has been scanned. Seeking past the end
+ * forces that scan; without this, a 12-minute upload lands on the timeline as a
+ * default-length clip and the rest of it is silently ignored.
+ */
+async function resolveDuration(element: HTMLMediaElement): Promise<number | null> {
+  if (Number.isFinite(element.duration) && element.duration > 0) return element.duration;
+
+  const scanned = await new Promise<number | null>((resolve) => {
+    let settled = false;
+    const finish = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      element.removeEventListener('durationchange', onDurationChange);
+      resolve(value);
+    };
+    const onDurationChange = () => {
+      if (Number.isFinite(element.duration) && element.duration > 0) finish(element.duration);
+    };
+    element.addEventListener('durationchange', onDurationChange);
+    try {
+      element.currentTime = 1e101;
+    } catch {
+      finish(null);
+    }
+    setTimeout(() => finish(Number.isFinite(element.duration) ? element.duration : null), 8000);
+  });
+
+  try {
+    element.currentTime = 0;
+  } catch {
+    // Nothing to reset if the element never became seekable.
+  }
+  return scanned && scanned > 0 ? scanned : null;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

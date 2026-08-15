@@ -9,8 +9,10 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  Scissors,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { api, ApiClientError } from '@/lib/api-client';
 import type { AspectRatio } from '@/lib/engine';
@@ -45,6 +47,7 @@ export function ProjectsHome() {
   const [duration, setDuration] = useState(30);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'generate' | 'edit'>('generate');
 
   const refresh = useCallback(async () => {
     try {
@@ -65,15 +68,18 @@ export function ProjectsHome() {
   }, [refresh]);
 
   const create = useCallback(
-    async (withPrompt: boolean) => {
+    async (intent: 'prompt' | 'blank' | 'edit') => {
       setCreating(true);
       setError(null);
       try {
-        const name = withPrompt && prompt.trim() ? titleFromPrompt(prompt) : 'Untitled project';
+        const usePrompt = intent === 'prompt' && prompt.trim().length > 0;
+        const name = usePrompt ? titleFromPrompt(prompt) : intent === 'edit' ? 'My video' : 'Untitled project';
         const { project } = await api.createProject({ name, aspect });
-        const query = withPrompt && prompt.trim()
+        const query = usePrompt
           ? `?prompt=${encodeURIComponent(prompt.trim())}&duration=${duration}`
-          : '';
+          : intent === 'edit'
+            ? '?mode=edit'
+            : '';
         router.push(`/projects/${project.id}${query}`);
       } catch (caught) {
         setError(caught instanceof ApiClientError ? caught.message : 'Could not create the project');
@@ -111,13 +117,78 @@ export function ProjectsHome() {
 
         <section className="mx-auto max-w-3xl px-6 pb-16 pt-8 text-center">
           <h1 className="text-balance text-3xl font-semibold tracking-tight text-ink-0 sm:text-4xl">
-            Describe a video. Get a real edit.
+            {mode === 'generate' ? 'Describe a video. Get a real edit.' : 'Upload a video. Let AI cut it.'}
           </h1>
           <p className="mx-auto mt-3 max-w-[52ch] text-sm leading-relaxed text-ink-2">
-            A prompt becomes a script, a storyboard and matched free stock footage — then lands on a multi-track
-            timeline you can actually edit, caption, score and export.
+            {mode === 'generate'
+              ? 'A prompt becomes a script, a storyboard and matched free stock footage — then lands on a multi-track timeline you can actually edit, caption, score and export.'
+              : 'Your own footage, tightened automatically: dead air and filler words removed, captions added, cutaway B-roll suggested — all on a timeline you stay in control of.'}
           </p>
 
+          <div className="mx-auto mt-6 flex w-fit items-center gap-1 rounded-lg border border-line bg-bg-1 p-1">
+            <button
+              type="button"
+              onClick={() => setMode('generate')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                mode === 'generate' ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
+              )}
+            >
+              <Sparkles size={13} /> Generate a video
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('edit')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                mode === 'edit' ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
+              )}
+            >
+              <Scissors size={13} /> Edit my video
+            </button>
+          </div>
+
+          {mode === 'edit' ? (
+            <div className="mt-8 rounded-xl border border-line bg-bg-1 p-6 text-left shadow-panel">
+              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
+                <Upload size={22} className="text-ink-3" />
+                <p className="text-sm font-medium text-ink-0">Bring your own footage</p>
+                <p className="max-w-[46ch] text-xs leading-relaxed text-ink-2">
+                  Start a project, upload your recording, and the auto-editor will analyse it: cut the silence, strip
+                  filler words, transcribe and caption it, then propose cutaways for what you talk about.
+                </p>
+                <div className="mt-1 flex items-center gap-1 rounded-lg bg-bg-2 p-1">
+                  {FORMATS.map((format) => (
+                    <button
+                      key={format.aspect}
+                      type="button"
+                      onClick={() => setAspect(format.aspect)}
+                      title={format.platforms}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        aspect === format.aspect ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
+                      )}
+                    >
+                      {format.aspect}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="mt-2"
+                  icon={<Upload size={14} />}
+                  loading={creating}
+                  onClick={() => void create('edit')}
+                >
+                  Upload and auto-edit
+                </Button>
+                <p className="text-2xs text-ink-3">
+                  Silence cutting runs entirely in your browser — no API key, nothing uploaded.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="mt-8 rounded-xl border border-line bg-bg-1 p-3 text-left shadow-panel">
             <Textarea
               value={prompt}
@@ -126,7 +197,7 @@ export function ProjectsHome() {
               placeholder="Create a 30-second Instagram Reel about organic mangoes — farm to table, warm and appetising."
               className="border-0 bg-transparent text-[15px] leading-relaxed focus:bg-transparent"
               onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void create(true);
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void create('prompt');
               }}
             />
 
@@ -165,13 +236,13 @@ export function ProjectsHome() {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                <Button variant="ghost" size="md" onClick={() => void create(false)} disabled={creating}>
+                <Button variant="ghost" size="md" onClick={() => void create('blank')} disabled={creating}>
                   Start blank
                 </Button>
                 <Button
                   variant="primary"
                   size="md"
-                  onClick={() => void create(true)}
+                  onClick={() => void create('prompt')}
                   loading={creating}
                   icon={<Sparkles size={14} />}
                   disabled={prompt.trim().length < 4}
@@ -181,9 +252,10 @@ export function ProjectsHome() {
               </div>
             </div>
           </div>
+          )}
 
           {error ? <p className="mt-3 text-xs text-danger">{error}</p> : null}
-          {capabilities && !capabilities.ai.available ? (
+          {capabilities && !capabilities.ai.available && mode === 'generate' ? (
             <p className="mt-3 text-2xs text-ink-3">
               No AI key configured — prompts still produce an editable structural draft. Add a free{' '}
               <code className="font-mono text-ink-2">GEMINI_API_KEY</code> or{' '}
@@ -196,7 +268,7 @@ export function ProjectsHome() {
       <section className="mx-auto max-w-6xl px-6 py-10">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-1">Your projects</h2>
-          <Button size="sm" icon={<Plus size={13} />} onClick={() => void create(false)} disabled={creating}>
+          <Button size="sm" icon={<Plus size={13} />} onClick={() => void create('blank')} disabled={creating}>
             New project
           </Button>
         </div>

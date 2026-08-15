@@ -61,10 +61,15 @@ POST /api/ai/broll     { aspect, scenes[], perScene?, type?, topic? }          �
 POST /api/ai/captions  { segments[] }                                          → { results }
 POST /api/ai/suggest   { summary }                                             → { suggestions, provider }   503 without a provider
 POST /api/ai/titles    { topic, script }                                       → { payload, provider }
+POST /api/ai/edit      { durationSeconds, targetSeconds?, goal?, cues[] }       → { plan, provider }   503 without a provider
 ```
 
 `storyboard.provider` is `gemini`, `groq`, `openai` or `offline`, so the client
 always knows what produced the result.
+
+`/api/ai/edit` plans cuts for footage the user already has: the model receives
+only the transcript, and every timestamp it returns is clamped to the real
+duration before the response is sent.
 
 ## Captions from audio
 

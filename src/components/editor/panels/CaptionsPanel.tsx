@@ -94,8 +94,8 @@ export function CaptionsPanel() {
         {!capabilities?.transcription.available ? (
           <p className="text-2xs leading-relaxed text-ink-3">
             Automatic captions need a transcription provider — a free{' '}
-            <code className="font-mono">GROQ_API_KEY</code> is enough. You can still generate captions from the
-            script, or type them by hand.
+            <code className="font-mono">GEMINI_API_KEY</code> or <code className="font-mono">GROQ_API_KEY</code> is
+            enough. You can still generate captions from the script, or type them by hand.
           </p>
         ) : null}
         {status ? <p className="text-2xs text-ink-2">{status}</p> : null}

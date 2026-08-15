@@ -136,6 +136,23 @@ export const api = {
       missingKeys: string[];
     }>('/api/ai/broll', post(input)),
 
+  planEdit: (input: {
+    durationSeconds: number;
+    targetSeconds?: number;
+    goal?: string;
+    cues: { start: number; end: number; text: string }[];
+  }) =>
+    request<{
+      plan: {
+        summary: string;
+        title: string;
+        keep: { start: number; end: number; reason: string }[];
+        brollCues: { start: number; duration: number; query: string; reason: string }[];
+        callouts: { start: number; duration: number; text: string }[];
+      };
+      provider: string;
+    }>('/api/ai/edit', post(input)),
+
   generateCaptions: (segments: { id: string; text: string; start: number; duration: number }[]) =>
     request<{ results: { id: string; cues: { text: string; start: number; end: number }[]; provider: string }[] }>(
       '/api/ai/captions',

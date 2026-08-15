@@ -1,0 +1,500 @@
+'use client';
+
+import { useCallback, useRef, useState } from 'react';
+import {
+  AudioWaveform,
+  Captions,
+  Check,
+  Film,
+  Scissors,
+  Upload,
+  Wand2,
+  X,
+} from 'lucide-react';
+import { useEditorStore } from '@/state/editorStore';
+import { uploadFile, ACCEPTED_MIME } from '@/features/media/upload';
+import { addAssetToTimeline } from '@/features/timeline/operations';
+import {
+  analysePrimaryClip,
+  applyCallouts,
+  applyCaptions,
+  applyCutPlan,
+  findCutawayBroll,
+  insertCutaway,
+  planFillerCuts,
+  planFromKeepRanges,
+  planSilenceCuts,
+  primaryClip,
+  transcribeTimeline,
+  wordsFromCues,
+  type AnalysisResult,
+  type BrollSuggestion,
+} from '@/features/ai/autoEdit';
+import { api, ApiClientError } from '@/lib/api-client';
+import { sequenceDuration, type AspectRatio } from '@/lib/engine';
+import { Badge, Button, EmptyState, Field, Input, PanelHeader, ProgressBar, Select, Textarea } from '@/components/ui';
+import { clock } from '@/lib/format';
+import { toast } from '@/state/toastStore';
+import type { CaptionCue } from '@/types';
+import { cn } from '@/lib/cn';
+
+/**
+ * Auto-edit: the AI works on footage the user already has.
+ *
+ * The three tools stack from "always works" to "needs a key": silence cutting
+ * runs entirely on decoded audio in this browser, filler-word cutting needs a
+ * transcript, and restructuring to a target length needs an AI provider. Each
+ * step previews what it will remove before touching the timeline.
+ */
+export function AutoEditPanel() {
+  const sequence = useEditorStore((state) => state.sequence);
+  const assets = useEditorStore((state) => state.assets);
+  const projectId = useEditorStore((state) => state.projectId);
+  const aspect = useEditorStore((state) => state.aspect);
+  const capabilities = useEditorStore((state) => state.capabilities);
+  const addAsset = useEditorStore((state) => state.addAsset);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [cues, setCues] = useState<CaptionCue[] | null>(null);
+  const [keepPauses, setKeepPauses] = useState(false);
+
+  const [targetSeconds, setTargetSeconds] = useState<number | ''>('');
+  const [goal, setGoal] = useState('');
+  const [suggestions, setSuggestions] = useState<BrollSuggestion[] | null>(null);
+  const [planSummary, setPlanSummary] = useState<string | null>(null);
+
+  const primary = sequence ? primaryClip(sequence) : null;
+  const duration = sequence ? sequenceDuration(sequence) : 0;
+  const aiReady = capabilities?.ai.available ?? false;
+  const transcriptionReady = capabilities?.transcription.available ?? false;
+
+  const run = useCallback(async (key: string, task: () => Promise<void>) => {
+    setBusy(key);
+    try {
+      await task();
+    } catch (error) {
+      toast.error(
+        'Auto-edit step failed',
+        error instanceof ApiClientError || error instanceof Error ? error.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+      setStatus(null);
+    }
+  }, []);
+
+  const handleUpload = async (files: FileList) => {
+    if (!projectId) return;
+    const file = files[0];
+    if (!file) return;
+    setBusy('upload');
+    setUploadProgress(0);
+    try {
+      const { asset, localOnly } = await uploadFile(file, projectId, setUploadProgress);
+      addAsset(asset);
+      addAssetToTimeline(asset, { role: 'video' });
+      if (localOnly) toast.warn('This file stays in this browser', 'Configure object storage to keep it after a reload.');
+      else toast.success('Video added to the timeline');
+      setAnalysis(null);
+      setCues(null);
+    } catch (error) {
+      toast.error('Upload failed', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(null);
+      setUploadProgress(null);
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <PanelHeader
+        title="Auto-edit"
+        description="Let AI cut the footage you already recorded."
+        action={capabilities ? <Badge tone={aiReady ? 'accent' : 'warn'}>{aiReady ? capabilities.ai.active : 'local only'}</Badge> : null}
+      />
+
+      <div className="flex-1 overflow-y-auto p-2.5">
+        {!primary ? (
+          <>
+            <EmptyState
+              icon={<Film size={20} />}
+              title="Add your video first"
+              description="Upload the recording you want edited. Everything below works on whatever is on the timeline."
+            />
+            <Button
+              className="w-full"
+              variant="primary"
+              icon={<Upload size={13} />}
+              loading={busy === 'upload'}
+              onClick={() => inputRef.current?.click()}
+            >
+              Upload video
+            </Button>
+            {uploadProgress !== null ? <ProgressBar value={uploadProgress} className="mt-2" /> : null}
+          </>
+        ) : (
+          <>
+            <div className="mb-3 rounded-md border border-line bg-bg-2 p-2.5">
+              <p className="flex items-center justify-between text-xs text-ink-0">
+                <span className="truncate">{assets.find((a) => a.id === primary.clip.assetId)?.name ?? 'Your video'}</span>
+                <span className="ml-2 shrink-0 font-mono text-2xs text-ink-3">{clock(duration)}</span>
+              </p>
+              <Button
+                size="sm"
+                className="mt-2 w-full"
+                icon={<Upload size={11} />}
+                loading={busy === 'upload'}
+                onClick={() => inputRef.current?.click()}
+              >
+                Replace with another file
+              </Button>
+              {uploadProgress !== null ? <ProgressBar value={uploadProgress} className="mt-2" /> : null}
+            </div>
+
+            {/* Step 1 — works with no keys at all */}
+            <Step number={1} title="Cut dead air" note="No API key needed">
+              <Button
+                size="sm"
+                className="w-full justify-start"
+                icon={<AudioWaveform size={12} />}
+                loading={busy === 'analyse'}
+                onClick={() =>
+                  void run('analyse', async () => {
+                    setStatus('Decoding audio…');
+                    const result = await analysePrimaryClip();
+                    setAnalysis(result);
+                    toast.success(
+                      `Found ${result.silences.length} silent stretches`,
+                      `${clock(result.removableSeconds)} could be removed.`,
+                    );
+                  })
+                }
+              >
+                {analysis ? 'Re-analyse audio' : 'Analyse audio'}
+              </Button>
+
+              {analysis ? (
+                <>
+                  <Waveform analysis={analysis} />
+                  <p className="mt-1.5 text-2xs text-ink-2">
+                    {analysis.silences.length} silences · {clock(analysis.removableSeconds)} removable ·{' '}
+                    {clock(Math.max(0, duration - analysis.removableSeconds))} after cutting
+                  </p>
+                  <label className="mt-1.5 flex items-center gap-1.5 text-2xs text-ink-2">
+                    <input
+                      type="checkbox"
+                      checked={keepPauses}
+                      onChange={(event) => setKeepPauses(event.target.checked)}
+                      className="accent-[#7c5cff]"
+                    />
+                    Keep natural pauses (only cut gaps over 1.2s)
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="mt-2 w-full justify-start"
+                    icon={<Scissors size={12} />}
+                    onClick={() => {
+                      const plan = planSilenceCuts(analysis, primary.clip, { keepPauses });
+                      if (!applyCutPlan(plan)) {
+                        toast.info('Nothing to cut', 'No silence long enough was found.');
+                        return;
+                      }
+                      toast.success(`Removed ${clock(plan.removedSeconds)} of silence`);
+                      setAnalysis(null);
+                    }}
+                  >
+                    Remove silence
+                  </Button>
+                </>
+              ) : null}
+            </Step>
+
+            {/* Step 2 — needs transcription */}
+            <Step number={2} title="Transcript" note={transcriptionReady ? capabilities?.transcription.provider ?? 'ready' : 'Needs an AI key'}>
+              <Button
+                size="sm"
+                className="w-full justify-start"
+                icon={<Captions size={12} />}
+                loading={busy === 'transcribe'}
+                disabled={!transcriptionReady}
+                onClick={() =>
+                  void run('transcribe', async () => {
+                    const result = await transcribeTimeline(setStatus);
+                    setCues(result);
+                    if (result.length === 0) {
+                      toast.warn(
+                        'No speech found in this recording',
+                        'Captions and AI editing need spoken audio. Silence cutting still works.',
+                      );
+                      return;
+                    }
+                    toast.success(`Transcribed ${result.length} lines`);
+                  })
+                }
+              >
+                {cues ? (cues.length > 0 ? `Re-transcribe (${cues.length} lines)` : 'No speech found — try again') : 'Transcribe speech'}
+              </Button>
+
+              {cues && cues.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  <Button
+                    size="sm"
+                    className="w-full justify-start"
+                    icon={<Captions size={12} />}
+                    onClick={() => {
+                      if (applyCaptions(cues)) toast.success('Captions added to the timeline');
+                    }}
+                  >
+                    Add captions
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="w-full justify-start"
+                    icon={<Scissors size={12} />}
+                    onClick={() => {
+                      const plan = planFillerCuts(wordsFromCues(cues), primary.clip);
+                      if (!applyCutPlan(plan)) {
+                        toast.info('No filler words found');
+                        return;
+                      }
+                      toast.success(`Removed ${plan.cuts.length} filler words`);
+                    }}
+                  >
+                    Remove filler words
+                  </Button>
+                </div>
+              ) : null}
+              {!transcriptionReady ? (
+                <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+                  A free <code className="font-mono">GEMINI_API_KEY</code> or{' '}
+                  <code className="font-mono">GROQ_API_KEY</code> unlocks transcription, captions and filler-word
+                  cutting. Groq gives word-level timings for karaoke captions.
+                </p>
+              ) : null}
+            </Step>
+
+            {/* Step 3 — needs an AI provider */}
+            <Step number={3} title="AI edit" note={aiReady ? 'Uses the transcript' : 'Needs an AI key'}>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Target length" hint="optional">
+                  <Input
+                    type="number"
+                    min={5}
+                    placeholder="auto"
+                    value={targetSeconds}
+                    onChange={(event) => setTargetSeconds(event.target.value === '' ? '' : Number(event.target.value))}
+                  />
+                </Field>
+                <Field label="Style">
+                  <Select value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full">
+                    <option value="">Tighten it up</option>
+                    <option value="Cut a punchy highlight reel of the best moments.">Highlights</option>
+                    <option value="Keep only the single strongest moment as a short clip.">Best moment</option>
+                    <option value="Keep the full explanation but remove rambling and repetition.">Full, tightened</option>
+                  </Select>
+                </Field>
+              </div>
+              <Textarea
+                rows={2}
+                className="mt-2 text-xs"
+                placeholder="Anything specific? e.g. 'cut the intro, keep the demo'"
+                value={goal.startsWith('Cut a') || goal.startsWith('Keep') ? '' : goal}
+                onChange={(event) => setGoal(event.target.value)}
+              />
+
+              <Button
+                size="sm"
+                variant="primary"
+                className="mt-2 w-full justify-start"
+                icon={<Wand2 size={12} />}
+                loading={busy === 'plan'}
+                disabled={!aiReady || !cues || cues.length === 0}
+                onClick={() =>
+                  void run('plan', async () => {
+                    if (!cues || cues.length === 0) throw new Error('Transcribe the video first — the AI edits from what is said.');
+                    setStatus('Planning the edit…');
+                    const sourceDuration = primary.clip.sourceIn + primary.clip.duration * primary.clip.speed;
+                    const { plan } = await api.planEdit({
+                      durationSeconds: sourceDuration,
+                      targetSeconds: targetSeconds === '' ? undefined : targetSeconds,
+                      goal: goal || undefined,
+                      cues: cues.map((cue) => ({ start: cue.start, end: cue.end, text: cue.text })),
+                    });
+
+                    setPlanSummary(plan.summary || plan.title || null);
+
+                    const cutPlan = planFromKeepRanges(plan.keep, primary.clip, sourceDuration);
+                    if (cutPlan.cuts.length > 0 && applyCutPlan(cutPlan)) {
+                      toast.success(`Cut down by ${clock(cutPlan.removedSeconds)}`, plan.title || undefined);
+                    } else {
+                      toast.info('The AI kept the whole recording', 'Nothing was cut.');
+                    }
+
+                    if (plan.callouts.length > 0) applyCallouts(plan.callouts);
+
+                    if (plan.brollCues.length > 0) {
+                      setStatus('Finding cutaway B-roll…');
+                      setSuggestions(await findCutawayBroll(plan.brollCues, aspect as AspectRatio));
+                    }
+                  })
+                }
+              >
+                Edit my video
+              </Button>
+
+              {!cues || cues.length === 0 ? (
+                <p className="mt-1.5 text-2xs text-ink-3">Transcribe the video first — the AI edits from what is said.</p>
+              ) : null}
+              {planSummary ? <p className="mt-2 text-2xs leading-relaxed text-ink-2">{planSummary}</p> : null}
+            </Step>
+
+            {suggestions && suggestions.length > 0 ? (
+              <Step number={4} title="Suggested cutaways" note="You approve each one">
+                <div className="space-y-2">
+                  {suggestions.map((suggestion, index) => (
+                    <CutawayRow
+                      key={`${suggestion.cue.start}-${index}`}
+                      suggestion={suggestion}
+                      onInsert={async (item) => {
+                        if (!projectId) return;
+                        await insertCutaway(projectId, item, suggestion.cue.start, suggestion.cue.duration);
+                        toast.success('Cutaway added');
+                        setSuggestions((current) => current?.filter((_, i) => i !== index) ?? null);
+                      }}
+                      onDismiss={() => setSuggestions((current) => current?.filter((_, i) => i !== index) ?? null)}
+                    />
+                  ))}
+                </div>
+              </Step>
+            ) : null}
+          </>
+        )}
+
+        {status ? <p className="mt-2 text-2xs text-ink-2">{status}</p> : null}
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPTED_MIME.join(',')}
+          className="hidden"
+          onChange={(event) => {
+            if (event.target.files) void handleUpload(event.target.files);
+            event.target.value = '';
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Step({
+  number,
+  title,
+  note,
+  children,
+}: {
+  number: number;
+  title: string;
+  note?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-3 border-b border-line pb-3 last:border-0">
+      <h3 className="mb-1.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-ink-2">
+        <span className="flex h-4 w-4 items-center justify-center rounded bg-bg-3 text-[9px] text-ink-1">{number}</span>
+        {title}
+        {note ? <span className="ml-auto font-normal normal-case tracking-normal text-ink-3">{note}</span> : null}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/** Loudness bars with the detected silences dimmed — the cut preview. */
+function Waveform({ analysis }: { analysis: AnalysisResult }) {
+  const bars = 96;
+  const step = Math.max(1, Math.floor(analysis.envelope.values.length / bars));
+  const peaks: { value: number; silent: boolean }[] = [];
+
+  for (let i = 0; i < bars; i++) {
+    let max = 0;
+    for (let j = 0; j < step; j++) {
+      max = Math.max(max, analysis.envelope.values[i * step + j] ?? 0);
+    }
+    const time = i * step * analysis.envelope.windowSeconds;
+    const silent = analysis.silences.some((range) => time >= range.start && time < range.end);
+    peaks.push({ value: analysis.envelope.peak > 0 ? max / analysis.envelope.peak : 0, silent });
+  }
+
+  return (
+    <div className="mt-2 flex h-10 items-center gap-px rounded bg-bg-2 px-1">
+      {peaks.map((peak, index) => (
+        <span
+          key={index}
+          className={cn('flex-1 rounded-sm', peak.silent ? 'bg-danger/40' : 'bg-accent/70')}
+          style={{ height: `${Math.max(6, peak.value * 100)}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CutawayRow({
+  suggestion,
+  onInsert,
+  onDismiss,
+}: {
+  suggestion: BrollSuggestion;
+  onInsert: (item: BrollSuggestion['items'][number]) => Promise<void>;
+  onDismiss: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="rounded-md border border-line bg-bg-2 p-2">
+      <p className="flex items-start justify-between gap-2 text-2xs text-ink-1">
+        <span>
+          <span className="font-mono text-ink-3">{clock(suggestion.cue.start)}</span> · {suggestion.cue.query}
+        </span>
+        <button type="button" onClick={onDismiss} className="shrink-0 text-ink-3 hover:text-danger" aria-label="Dismiss">
+          <X size={11} />
+        </button>
+      </p>
+      {suggestion.items.length === 0 ? (
+        <p className="mt-1 text-2xs text-ink-3">No footage matched this moment.</p>
+      ) : (
+        <div className="mt-1.5 grid grid-cols-4 gap-1">
+          {suggestion.items.slice(0, 4).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onInsert(item);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="group relative aspect-video overflow-hidden rounded border border-line disabled:opacity-50"
+              title={`${item.provider} · ${item.title}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+              <span className="absolute inset-0 hidden items-center justify-center bg-accent/70 group-hover:flex">
+                <Check size={13} className="text-white" />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
