@@ -15,34 +15,63 @@ import type { CaptionCue } from '@/types';
 
 export type WhisperModelSize = 'tiny' | 'base' | 'small';
 
+/** One attempt at loading a model: a repo plus the precision to load it at. */
+export interface ModelCandidate {
+  repo: string;
+  dtype: 'q8' | 'q4' | 'fp16' | 'fp32';
+}
+
 export interface LocalWhisperModel {
-  id: string;
   label: string;
   /** Approximate download size, shown before the user commits to it. */
   downloadMb: number;
   note: string;
+  /**
+   * Tried in order. ONNX exports and the bundled onnxruntime version do not
+   * always agree — some combinations download fine and then fail to build a
+   * session — so each size lists working alternatives rather than a single id.
+   */
+  candidates: ModelCandidate[];
 }
 
 export const LOCAL_WHISPER_MODELS: Record<WhisperModelSize, LocalWhisperModel> = {
   tiny: {
-    id: 'onnx-community/whisper-tiny.en',
     label: 'Whisper tiny',
     downloadMb: 40,
     note: 'Fastest. Good for clear speech.',
+    candidates: [
+      { repo: 'Xenova/whisper-tiny.en', dtype: 'q8' },
+      { repo: 'onnx-community/whisper-tiny.en', dtype: 'fp32' },
+      { repo: 'Xenova/whisper-tiny.en', dtype: 'fp32' },
+    ],
   },
   base: {
-    id: 'onnx-community/whisper-base.en',
     label: 'Whisper base',
     downloadMb: 80,
     note: 'Better accuracy, still quick.',
+    candidates: [
+      { repo: 'Xenova/whisper-base.en', dtype: 'q8' },
+      { repo: 'onnx-community/whisper-base.en', dtype: 'fp32' },
+      { repo: 'Xenova/whisper-tiny.en', dtype: 'q8' },
+    ],
   },
   small: {
-    id: 'onnx-community/whisper-small.en',
     label: 'Whisper small',
     downloadMb: 250,
     note: 'Most accurate. Slower on CPU.',
+    candidates: [
+      { repo: 'Xenova/whisper-small.en', dtype: 'q8' },
+      { repo: 'Xenova/whisper-base.en', dtype: 'q8' },
+    ],
   },
 };
+
+/** Distinguishes "could not fetch it" from "fetched it but could not run it". */
+function classifyLoadError(error: unknown): 'network' | 'runtime' {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/fetch|network|Failed to load|404|ENOTFOUND|ERR_/i.test(message)) return 'network';
+  return 'runtime';
+}
 
 export interface LocalTranscribeOptions {
   model?: WhisperModelSize;
@@ -55,7 +84,7 @@ type TransformersPipeline = (
   options: Record<string, unknown>,
 ) => Promise<{ text?: string; chunks?: { text: string; timestamp: [number, number | null] }[] }>;
 
-let cached: { model: string; pipeline: TransformersPipeline } | null = null;
+let cached: { key: string; pipeline: TransformersPipeline } | null = null;
 
 /** True when this browser can run the local model at all. */
 export function isLocalWhisperSupported(): boolean {
@@ -79,34 +108,46 @@ export async function hasWebGpu(): Promise<boolean> {
  */
 async function getPipeline(model: WhisperModelSize, onProgress?: LocalTranscribeOptions['onProgress']): Promise<TransformersPipeline> {
   const spec = LOCAL_WHISPER_MODELS[model];
-  if (cached?.model === spec.id) return cached.pipeline;
+  if (cached?.key === model) return cached.pipeline;
 
   onProgress?.(`Loading ${spec.label} (~${spec.downloadMb} MB, cached after the first run)…`, 0);
   const { pipeline } = await import('@huggingface/transformers');
-  const device = (await hasWebGpu()) ? 'webgpu' : 'wasm';
+  const webgpu = await hasWebGpu();
 
-  let asr: TransformersPipeline;
-  try {
-    asr = (await pipeline('automatic-speech-recognition', spec.id, {
-    device,
-    dtype: device === 'webgpu' ? 'fp16' : 'q8',
-    progress_callback: (event: { status?: string; progress?: number; file?: string }) => {
-      if (event.status === 'progress' && typeof event.progress === 'number') {
-        onProgress?.(`Downloading ${spec.label}… ${Math.round(event.progress)}%`, event.progress / 100);
-      }
-    },
-    })) as unknown as TransformersPipeline;
-  } catch (error) {
-    // The model is fetched from the Hugging Face CDN on first use; a blocked or
-    // offline network is by far the most likely reason to land here.
-    throw new Error(
-      `Could not load ${spec.label}. The model downloads from huggingface.co on first use — check the connection, ` +
-        `or use a hosted provider instead. (${error instanceof Error ? error.message : 'unknown error'})`,
-    );
+  let networkFailure = false;
+  let lastError: unknown;
+
+  for (const candidate of spec.candidates) {
+    // WebGPU prefers fp16; on WASM keep the candidate's own precision.
+    const dtype = webgpu && candidate.dtype === 'q8' ? 'fp16' : candidate.dtype;
+    try {
+      const asr = (await pipeline('automatic-speech-recognition', candidate.repo, {
+        device: webgpu ? 'webgpu' : 'wasm',
+        dtype,
+        progress_callback: (event: { status?: string; progress?: number; file?: string }) => {
+          if (event.status === 'progress' && typeof event.progress === 'number') {
+            onProgress?.(`Downloading ${spec.label}… ${Math.round(event.progress)}%`, event.progress / 100);
+          }
+        },
+      })) as unknown as TransformersPipeline;
+
+      cached = { key: model, pipeline: asr };
+      return asr;
+    } catch (error) {
+      lastError = error;
+      const kind = classifyLoadError(error);
+      if (kind === 'network') networkFailure = true;
+      console.warn(`[whisper] ${candidate.repo} (${dtype}) failed to load: ${kind}`, error);
+      onProgress?.(`${spec.label} did not load — trying another build…`);
+    }
   }
 
-  cached = { model: spec.id, pipeline: asr };
-  return asr;
+  const detail = lastError instanceof Error ? lastError.message : 'unknown error';
+  throw new Error(
+    networkFailure
+      ? `Could not download ${spec.label}. The model comes from huggingface.co on first use — check the connection, or switch to Hosted above. (${detail})`
+      : `${spec.label} downloaded, but this browser's runtime could not run any available build of it. Try a different size, or switch to Hosted above. (${detail})`,
+  );
 }
 
 /**

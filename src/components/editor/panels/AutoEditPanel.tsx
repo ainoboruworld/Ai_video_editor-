@@ -354,7 +354,9 @@ export function AutoEditPanel() {
               ) : null}
               <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
                 {mode === 'local'
-                  ? 'Whisper runs in this browser: no API key, no quota, and your audio never leaves the device. The model downloads once and is cached.'
+                  ? `Whisper runs in this browser: no API key, no quota, and your audio never leaves the device. The model downloads once and is cached.${
+                      transcriptionReady ? ' If a build will not run on this device, Hosted is the reliable route.' : ''
+                    }`
                   : transcriptionReady
                     ? 'Sends the audio to your configured provider. Faster, and Whisper backends return word-level timings for karaoke captions.'
                     : 'No hosted transcription key configured — use “On this device”, or set a free GROQ_API_KEY.'}
