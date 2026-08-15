@@ -15,6 +15,37 @@ import type { CaptionCue } from '@/types';
  * captions do not require a paid account. Adding Deepgram or AssemblyAI means
  * adding one more class here; the caption pipeline is unchanged.
  */
+/**
+ * Turns an upstream transcription failure into a message the user can act on.
+ *
+ * Free tiers fail in specific, fixable ways — an exhausted daily quota, a short
+ * rate limit, audio that is too long — and each has a different next step.
+ * Relaying the provider's raw JSON tells the user nothing they can use.
+ */
+export function transcriptionError(provider: string, status: number, detail: string): ApiError {
+  const quota = /quota|billing|exceeded your current/i.test(detail);
+
+  if (status === 429 && quota) {
+    return new ApiError(
+      429,
+      provider.startsWith('gemini')
+        ? 'Gemini free-tier quota is used up for now. Add a free GROQ_API_KEY — its Whisper tier handles long audio far better — or wait for the quota to reset.'
+        : `${provider} quota is used up for now. Wait for it to reset, or configure another transcription provider.`,
+      'quota_exhausted',
+    );
+  }
+  if (status === 429) {
+    return new ApiError(429, `${provider} is rate limiting requests. Wait a moment and try again.`, 'rate_limited');
+  }
+  if (status === 401 || status === 403) {
+    return new ApiError(status, `${provider} rejected the API key. Check it is valid and enabled.`, 'unauthorized');
+  }
+  if (status === 413) {
+    return new ApiError(413, 'This audio is too long for the provider. Caption it in shorter sections.', 'too_large');
+  }
+  return new ApiError(502, `${provider} could not transcribe this audio (${status}).`, 'transcription_failed');
+}
+
 export interface TranscriptionProvider {
   readonly name: string;
   isConfigured(): boolean;
@@ -64,11 +95,7 @@ abstract class WhisperCompatibleTranscription implements TranscriptionProvider {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText);
-      throw new ApiError(
-        res.status === 401 ? 401 : 502,
-        `Transcription failed: ${detail.slice(0, 300)}`,
-        'transcription_failed',
-      );
+      throw transcriptionError(this.name, res.status, detail);
     }
 
     const body = (await res.json()) as { words?: WhisperWord[]; segments?: WhisperSegment[]; text?: string };
@@ -196,7 +223,7 @@ export class GeminiTranscription implements TranscriptionProvider {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText);
-      throw new ApiError(502, `Gemini transcription failed: ${detail.slice(0, 300)}`, 'transcription_failed');
+      throw transcriptionError(this.name, res.status, detail);
     }
 
     const body = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };

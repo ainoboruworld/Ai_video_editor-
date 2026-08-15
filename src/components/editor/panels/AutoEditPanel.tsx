@@ -31,7 +31,9 @@ import {
   wordsFromCues,
   type AnalysisResult,
   type BrollSuggestion,
+  type TranscriptionMode,
 } from '@/features/ai/autoEdit';
+import { LOCAL_WHISPER_MODELS, isLocalWhisperSupported, type WhisperModelSize } from '@/features/captions/localWhisper';
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration, type AspectRatio } from '@/lib/engine';
 import { Badge, Button, EmptyState, Field, Input, PanelHeader, ProgressBar, Select, Textarea } from '@/components/ui';
@@ -65,6 +67,9 @@ export function AutoEditPanel() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [cues, setCues] = useState<CaptionCue[] | null>(null);
   const [keepPauses, setKeepPauses] = useState(false);
+  const [mode, setMode] = useState<TranscriptionMode>('local');
+  const [whisperModel, setWhisperModel] = useState<WhisperModelSize>('base');
+  const localSupported = typeof window !== 'undefined' && isLocalWhisperSupported();
 
   const [targetSeconds, setTargetSeconds] = useState<number | ''>('');
   const [goal, setGoal] = useState('');
@@ -235,16 +240,71 @@ export function AutoEditPanel() {
             </Step>
 
             {/* Step 2 — needs transcription */}
-            <Step number={2} title="Transcript" note={transcriptionReady ? capabilities?.transcription.provider ?? 'ready' : 'Needs an AI key'}>
+            <Step
+              number={2}
+              title="Transcript"
+              note={mode === 'local' ? 'Free, no quota' : (capabilities?.transcription.provider ?? 'needs a key')}
+            >
+              {mode === 'hosted' &&
+              transcriptionReady &&
+              capabilities?.transcription.provider === 'gemini-audio' &&
+              duration > 240 ? (
+                <p className="mb-1.5 rounded border border-warn/25 bg-warn/5 px-2 py-1.5 text-2xs leading-relaxed text-warn">
+                  This is a {clock(duration)} recording. Gemini bills audio by length and its free tier is small.
+                  Switch to <span className="text-ink-1">On this device</span> above, or set a free{' '}
+                  <code className="font-mono">GROQ_API_KEY</code>, to keep your Gemini quota for the AI recut.
+                </p>
+              ) : null}
+              <div className="mb-2 flex items-center gap-1 rounded-md bg-bg-2 p-1">
+                <button
+                  type="button"
+                  onClick={() => setMode('local')}
+                  disabled={!localSupported}
+                  className={cn(
+                    'flex-1 rounded px-2 py-1 text-2xs font-medium transition-colors disabled:opacity-40',
+                    mode === 'local' ? 'bg-bg-3 text-ink-0' : 'text-ink-3 hover:text-ink-1',
+                  )}
+                >
+                  On this device
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('hosted')}
+                  disabled={!transcriptionReady}
+                  className={cn(
+                    'flex-1 rounded px-2 py-1 text-2xs font-medium transition-colors disabled:opacity-40',
+                    mode === 'hosted' ? 'bg-bg-3 text-ink-0' : 'text-ink-3 hover:text-ink-1',
+                  )}
+                >
+                  Hosted {transcriptionReady ? '' : '(no key)'}
+                </button>
+              </div>
+
+              {mode === 'local' ? (
+                <Field label="Model" hint={`~${LOCAL_WHISPER_MODELS[whisperModel].downloadMb} MB once`} className="mb-2">
+                  <Select
+                    value={whisperModel}
+                    onChange={(event) => setWhisperModel(event.target.value as WhisperModelSize)}
+                    className="w-full"
+                  >
+                    {Object.entries(LOCAL_WHISPER_MODELS).map(([key, model]) => (
+                      <option key={key} value={key}>
+                        {model.label} — {model.note}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
+
               <Button
                 size="sm"
                 className="w-full justify-start"
                 icon={<Captions size={12} />}
                 loading={busy === 'transcribe'}
-                disabled={!transcriptionReady}
+                disabled={mode === 'local' ? !localSupported : !transcriptionReady}
                 onClick={() =>
                   void run('transcribe', async () => {
-                    const result = await transcribeTimeline(setStatus);
+                    const result = await transcribeTimeline(setStatus, { mode, model: whisperModel });
                     setCues(result);
                     if (result.length === 0) {
                       toast.warn(
@@ -289,13 +349,13 @@ export function AutoEditPanel() {
                   </Button>
                 </div>
               ) : null}
-              {!transcriptionReady ? (
-                <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-                  A free <code className="font-mono">GEMINI_API_KEY</code> or{' '}
-                  <code className="font-mono">GROQ_API_KEY</code> unlocks transcription, captions and filler-word
-                  cutting. Groq gives word-level timings for karaoke captions.
-                </p>
-              ) : null}
+              <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+                {mode === 'local'
+                  ? 'Whisper runs in this browser: no API key, no quota, and your audio never leaves the device. The model downloads once and is cached.'
+                  : transcriptionReady
+                    ? 'Sends the audio to your configured provider. Faster, and Whisper backends return word-level timings for karaoke captions.'
+                    : 'No hosted transcription key configured — use “On this device”, or set a free GROQ_API_KEY.'}
+              </p>
             </Step>
 
             {/* Step 3 — needs an AI provider */}

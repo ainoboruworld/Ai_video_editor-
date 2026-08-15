@@ -4,6 +4,7 @@ import { deriveQueries } from '@/lib/media/rank';
 import type { AiProviderName, ScriptRequest, Storyboard, StoryboardScene } from '@/types';
 import { GeminiProvider } from './gemini';
 import { GroqProvider } from './groq';
+import { OpenRouterProvider } from './openrouter';
 import { offlineCaptionCues, offlineStoryboard } from './offline';
 import {
   BROLL_SCHEMA_HINT,
@@ -32,13 +33,21 @@ import { OpenAiProvider } from './openai';
 import type { AiProvider } from './types';
 
 export { AiError } from './types';
+import { AiError as AiErrorType } from './types';
 export { offlineCaptionCues, offlineStoryboard } from './offline';
 
 /**
- * Order matters: free tiers first. OpenAI is supported but never required —
- * the product has to stay usable at zero cost.
+ * Order matters: the widest free allowances first. Groq and OpenRouter (free
+ * Qwen models) have day-scale limits, while Gemini's free tier is small and
+ * shared with audio transcription — so it sits behind them. OpenAI is supported
+ * but never required: the product has to stay usable at zero cost.
  */
-const providers: AiProvider[] = [new GeminiProvider(), new GroqProvider(), new OpenAiProvider()];
+const providers: AiProvider[] = [
+  new GroqProvider(),
+  new OpenRouterProvider(),
+  new GeminiProvider(),
+  new OpenAiProvider(),
+];
 
 export function availableProviders(): AiProviderName[] {
   return providers.filter((p) => p.isConfigured()).map((p) => p.name);
@@ -46,7 +55,7 @@ export function availableProviders(): AiProviderName[] {
 
 /**
  * Resolves the provider to use. `AI_PROVIDER` forces one; otherwise the first
- * configured free provider wins (Gemini, then Groq, then OpenAI). Returns null
+ * configured free provider wins (Groq, OpenRouter, Gemini, then OpenAI). Returns null
  * when nothing is configured — callers fall back to the offline draft generator.
  */
 export function activeProvider(): AiProvider | null {
@@ -71,6 +80,21 @@ function sceneId(index: number): string {
  * response; if the provider fails we degrade to the offline draft rather than
  * leaving the user with nothing, and say so in `provider`.
  */
+/** Human-readable reason for an AI provider failure, for surfacing to the user. */
+export function describeAiError(error: unknown): string {
+  if (!(error instanceof AiErrorType)) {
+    return error instanceof Error ? error.message : 'The AI request failed.';
+  }
+  const quota = /quota|billing|exceeded your current/i.test(error.message);
+  if (error.status === 429 && quota) {
+    return `${error.provider} free-tier quota is used up for now. Add another free key (GROQ_API_KEY or GEMINI_API_KEY) or wait for the quota to reset.`;
+  }
+  if (error.status === 429) return `${error.provider} is rate limiting requests. Wait a moment and try again.`;
+  if (error.status === 401 || error.status === 403) return `${error.provider} rejected the API key.`;
+  if (error.status === 503) return `${error.provider} is busy right now. Try again shortly.`;
+  return error.message;
+}
+
 export async function generateStoryboard(request: ScriptRequest): Promise<Storyboard> {
   const provider = activeProvider();
   let payload = null as ReturnType<typeof storyboardSchema.parse> | null;

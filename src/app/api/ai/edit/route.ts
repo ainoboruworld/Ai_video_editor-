@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { activeProvider } from '@/lib/ai';
+import { activeProvider, describeAiError } from '@/lib/ai';
 import { EDIT_PLAN_SCHEMA_HINT, EDIT_PLAN_SYSTEM, editPlanPrompt } from '@/lib/ai/prompts';
 import { editPlanSchema } from '@/lib/ai/schemas';
 import { ApiError, handle, ok, parseBody } from '@/lib/http';
@@ -43,18 +43,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       .join('\n')
       .slice(0, 24_000);
 
-    const raw = await provider.generateJson({
-      system: EDIT_PLAN_SYSTEM,
-      prompt: editPlanPrompt({
-        transcript,
-        durationSeconds: input.durationSeconds,
-        targetSeconds: input.targetSeconds,
-        goal: input.goal,
-      }),
-      schemaHint: EDIT_PLAN_SCHEMA_HINT,
-      temperature: 0.4,
-      maxTokens: 3000,
-    });
+    let raw: unknown;
+    try {
+      raw = await provider.generateJson({
+        system: EDIT_PLAN_SYSTEM,
+        prompt: editPlanPrompt({
+          transcript,
+          durationSeconds: input.durationSeconds,
+          targetSeconds: input.targetSeconds,
+          goal: input.goal,
+        }),
+        schemaHint: EDIT_PLAN_SCHEMA_HINT,
+        temperature: 0.4,
+        maxTokens: 3000,
+      });
+    } catch (error) {
+      throw new ApiError(502, describeAiError(error), 'ai_failed');
+    }
 
     const plan = editPlanSchema.parse(raw);
 

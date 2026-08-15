@@ -25,6 +25,7 @@ prompts produce a labelled structural draft, and export runs in the browser.
 | `PIXABAY_API_KEY` | https://pixabay.com/api/docs/ | Yes | Stock video + image fallback |
 | `UNSPLASH_ACCESS_KEY` | https://unsplash.com/developers | Yes (demo tier) | Photo B-roll and stills |
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Yes | Scripts, storyboards, captions, edit review |
+| `OPENROUTER_API_KEY` | https://openrouter.ai/keys | Yes (`:free` models) | Same AI features via free Qwen models |
 | `GROQ_API_KEY` | https://console.groq.com/keys | Yes | Same AI features, plus free Whisper transcription for automatic captions |
 | `OPENAI_API_KEY` | https://platform.openai.com | No (paid) | Optional alternative for the same features — never required |
 
@@ -34,6 +35,32 @@ of the product that most depends on an external service. Then add
 
 Provider preference is free-first: Gemini, then Groq, then OpenAI. `AI_PROVIDER`
 forces a specific one.
+
+### Transcription without any quota
+
+The Auto-edit panel can run **Whisper in the browser** — pick *On this device*.
+The model (40–250 MB depending on size) downloads once from the Hugging Face
+CDN, is cached by the browser, and runs on the user's own hardware with WebGPU
+where available. No key, no quota, no per-minute cost, and the audio never
+leaves the machine. It is slower than a hosted call and gives sentence-level
+rather than word-level timings, so both options are offered side by side.
+
+### Which free key for which job
+
+Any one of Groq, OpenRouter or Gemini is enough for scripts, storyboards and
+edit planning. They differ in how much they give you:
+
+- **Groq** — day-scale limits, and a Whisper endpoint billed per audio second
+  that handles long recordings comfortably. It also returns word-level timings,
+  which is what karaoke-style captions need. The best single key to add.
+- **OpenRouter** — one key reaches free Qwen models (`:free` ids), with a
+  day-scale allowance. Text only.
+- **Gemini** — capable, but its free tier is small and its audio transcription
+  is billed as tokens from the same allowance as the script calls, so a long
+  recording can exhaust it. Provider order puts it behind the other two.
+
+Provider preference is Groq → OpenRouter → Gemini → OpenAI, and transcription
+prefers Whisper backends over Gemini audio. `AI_PROVIDER` forces a specific one.
 
 ## Optional infrastructure
 
