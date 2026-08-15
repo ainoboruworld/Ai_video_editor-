@@ -75,7 +75,6 @@ export async function PATCH(request: Request, { params }: Params): Promise<NextR
         ...newProject({ ownerId: session.ownerId, name: `${project.name} copy`, aspect: project.aspect, fps: project.fps }),
         sequence: project.sequence,
         assets: project.assets,
-        storyboard: project.storyboard,
         settings: project.settings,
       };
       await store.put(copy);

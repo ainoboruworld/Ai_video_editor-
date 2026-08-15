@@ -115,6 +115,19 @@ function withClip(seq: Sequence, clipId: string, fn: (c: Clip) => Clip): Sequenc
   }));
 }
 
+/**
+ * An id for the right-hand half of a split that no clip is already using.
+ *
+ * Duplicate ids are not cosmetic: every command addresses a clip by id, so two
+ * clips sharing one would be selected, trimmed and deleted together.
+ */
+function freshClipId(baseId: string, taken: Set<string>): string {
+  let candidate = `${baseId}-r`;
+  for (let n = 2; taken.has(candidate); n += 1) candidate = `${baseId}-r${n}`;
+  taken.add(candidate);
+  return candidate;
+}
+
 /** Split a clip at absolute timeline time, preserving source mapping, keyframes and styling. */
 export function splitClipAt(clip: Clip, time: number, newClipId: string): [Clip, Clip] {
   if (time <= clip.start || time >= clip.start + clip.duration) {
@@ -221,6 +234,11 @@ export function applyCommand(seq: Sequence, cmd: EditorCommand): Sequence {
       if (end <= start) throw new CommandError('REMOVE_RANGE: end must be after start');
       const len = end - start;
       const affected = cmd.trackIds ? new Set(cmd.trackIds) : null;
+      // Every split here mints an id, and a clip can be split by several
+      // removals in a row, so the ids are drawn against what already exists
+      // rather than always being `<id>-r`. Derived from the sequence alone, so
+      // replaying the same command on the same timeline gives the same ids.
+      const taken = new Set(seq.tracks.flatMap((track) => track.clips.map((clip) => clip.id)));
       const tracks = seq.tracks.map((track) => {
         if (affected && !affected.has(track.id)) return track;
         const out: Clip[] = [];
@@ -234,7 +252,7 @@ export function applyCommand(seq: Sequence, cmd: EditorCommand): Sequence {
             // fully removed
           } else if (clip.start < start && cEnd > end) {
             // clip spans the range → split into two
-            const [left, rightRaw] = splitClipAt(clip, start, `${clip.id}-r`);
+            const [left, rightRaw] = splitClipAt(clip, start, freshClipId(clip.id, taken));
             const cut = end - start;
             const right: Clip = {
               ...rightRaw,

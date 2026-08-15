@@ -17,7 +17,7 @@ Recommended production set — all free tiers:
 
 ```
 PEXELS_API_KEY=…          # B-roll search (free)
-GEMINI_API_KEY=…          # scripts and storyboards (free tier)
+GEMINI_API_KEY=…          # optional AI recut and B-roll queries (free tier)
 GROQ_API_KEY=…            # AI fallback + free Whisper captions
 DATABASE_URL=…            # Postgres so projects persist across deploys
 STORAGE_URL=…             # S3-compatible bucket for uploads

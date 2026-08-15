@@ -56,16 +56,14 @@ upload keys are namespaced per owner and project.
 ## AI
 
 ```
-POST /api/ai/script    { prompt, durationSeconds, aspect, tone?, sceneCount? } → { storyboard }
 POST /api/ai/broll     { aspect, scenes[], perScene?, type?, topic? }          → { recommendations, providers, missingKeys }
-POST /api/ai/captions  { segments[] }                                          → { results }
-POST /api/ai/suggest   { summary }                                             → { suggestions, provider }   503 without a provider
-POST /api/ai/titles    { topic, script }                                       → { payload, provider }
 POST /api/ai/edit      { durationSeconds, targetSeconds?, goal?, cues[] }       → { plan, provider }   503 without a provider
 ```
 
-`storyboard.provider` is `gemini`, `groq`, `openai` or `offline`, so the client
-always knows what produced the result.
+Every response names the `provider` that produced it, so the client always knows
+what it is looking at. `/api/ai/broll` takes a spoken sentence as each scene's
+`visual` and turns it into search queries; with no provider configured it derives
+them locally instead of failing.
 
 `/api/ai/edit` plans cuts for footage the user already has: the model receives
 only the transcript, and every timestamp it returns is clamped to the real

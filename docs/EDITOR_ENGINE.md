@@ -11,7 +11,6 @@ Project {
   id, ownerId, name, aspect, width, height, fps,
   sequence: Sequence,      // tracks and clips
   assets: Asset[],         // media library with licence/attribution
-  storyboard: Storyboard | null,
   settings, createdAt, updatedAt, version
 }
 
@@ -46,7 +45,7 @@ SET_KEYFRAMES  SET_TRACK_STATE  ADD_MARKER  DELETE_MARKER  RENAME_SEQUENCE
 
 Sequences are immutable and structurally shared, so `EditorHistory` can snapshot
 before each command cheaply. Undo/redo therefore covers AI batch edits (a whole
-storyboard assembly is one entry) exactly as it covers a single drag.
+a whole cut-and-smooth pass is one entry) exactly as it covers a single drag.
 
 `validateCommand` checks untrusted commands (ids exist, numbers finite, ranges
 sane) before they reach the engine — model output is never executed directly.

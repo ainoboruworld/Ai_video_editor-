@@ -1,43 +1,20 @@
 import 'server-only';
 import { env } from '@/lib/env';
 import { deriveQueries } from '@/lib/media/rank';
-import type { AiProviderName, ScriptRequest, Storyboard, StoryboardScene } from '@/types';
+import type { AiProviderName } from '@/types';
 import { GeminiProvider } from './gemini';
 import { GroqProvider } from './groq';
 import { OpenRouterProvider } from './openrouter';
 import { CloudflareProvider } from './cloudflare';
 import { HuggingFaceProvider } from './huggingface';
 import { OllamaProvider } from './ollama';
-import { offlineCaptionCues, offlineStoryboard } from './offline';
-import {
-  BROLL_SCHEMA_HINT,
-  BROLL_SYSTEM,
-  CAPTION_SCHEMA_HINT,
-  CAPTION_SYSTEM,
-  STORYBOARD_SCHEMA_HINT,
-  STORYBOARD_SYSTEM,
-  SUGGESTION_SCHEMA_HINT,
-  SUGGESTION_SYSTEM,
-  TITLES_SCHEMA_HINT,
-  TITLES_SYSTEM,
-  storyboardPrompt,
-} from './prompts';
-import {
-  brollQuerySchema,
-  captionCuesSchema,
-  storyboardSchema,
-  suggestionsSchema,
-  titlesSchema,
-  type CaptionCuesPayload,
-  type SuggestionsPayload,
-  type TitlesPayload,
-} from './schemas';
+import { BROLL_SCHEMA_HINT, BROLL_SYSTEM } from './prompts';
+import { brollQuerySchema } from './schemas';
 import { OpenAiProvider } from './openai';
 import type { AiProvider } from './types';
 
 export { AiError } from './types';
 import { AiError as AiErrorType } from './types';
-export { offlineCaptionCues, offlineStoryboard } from './offline';
 
 /**
  * Order matters: the widest free allowances first. Groq and OpenRouter (free
@@ -126,59 +103,6 @@ export function describeAiError(error: unknown): string {
   return error.message;
 }
 
-export async function generateStoryboard(request: ScriptRequest & { provider?: AiProviderName }): Promise<Storyboard> {
-  const provider = resolveProvider(request.provider);
-  let payload = null as ReturnType<typeof storyboardSchema.parse> | null;
-  let usedProvider: AiProviderName = 'offline';
-  let warning: string | null = null;
-
-  if (provider) {
-    try {
-      const raw = await provider.generateJson({
-        system: STORYBOARD_SYSTEM,
-        prompt: storyboardPrompt(request),
-        schemaHint: STORYBOARD_SCHEMA_HINT,
-        temperature: 0.8,
-      });
-      payload = storyboardSchema.parse(raw);
-      usedProvider = provider.name;
-    } catch (error) {
-      warning = error instanceof Error ? error.message : 'AI request failed';
-    }
-  }
-
-  if (!payload) {
-    payload = storyboardSchema.parse(offlineStoryboard(request));
-  }
-
-  const scenes: StoryboardScene[] = payload.scenes.map((scene, index) => ({
-    id: sceneId(index),
-    index,
-    title: scene.title,
-    duration: scene.duration,
-    script: scene.script,
-    onScreenText: scene.onScreenText,
-    visual: scene.visual,
-    brollQueries: scene.brollQueries.length > 0 ? scene.brollQueries : deriveQueries(scene.visual, 3),
-    assetId: null,
-    transition: scene.transition,
-    clipIds: [],
-  }));
-
-  const storyboard: Storyboard = {
-    prompt: request.prompt,
-    title: payload.title,
-    hook: payload.hook,
-    cta: payload.cta,
-    tone: payload.tone,
-    scenes,
-    provider: usedProvider,
-    createdAt: new Date().toISOString(),
-  };
-  if (warning) console.warn('[ai] falling back to offline draft:', warning);
-  return storyboard;
-}
-
 /** Scene description → stock search queries. */
 export async function generateBrollQueries(visual: string, context?: string): Promise<{ queries: string[]; provider: AiProviderName }> {
   const provider = activeProvider();
@@ -201,68 +125,5 @@ export async function generateBrollQueries(visual: string, context?: string): Pr
 }
 
 /** Narration → caption cues with timings inside [start, start + duration]. */
-export async function generateCaptionCues(input: {
-  text: string;
-  start: number;
-  duration: number;
-}): Promise<{ cues: CaptionCuesPayload['cues']; provider: AiProviderName }> {
-  const provider = activeProvider();
-  if (provider) {
-    try {
-      const raw = await provider.generateJson({
-        system: CAPTION_SYSTEM,
-        prompt: `Narration: ${input.text}\nStart: ${input.start}\nEnd: ${input.start + input.duration}`,
-        schemaHint: CAPTION_SCHEMA_HINT,
-        temperature: 0.2,
-        maxTokens: 900,
-      });
-      const parsed = captionCuesSchema.parse(raw);
-      const clamped = parsed.cues
-        .map((cue) => ({
-          text: cue.text,
-          start: Math.max(input.start, Math.min(cue.start, input.start + input.duration)),
-          end: Math.max(input.start, Math.min(cue.end, input.start + input.duration)),
-        }))
-        .filter((cue) => cue.end > cue.start);
-      if (clamped.length > 0) return { cues: clamped, provider: provider.name };
-    } catch (error) {
-      console.warn('[ai] caption generation failed, splitting locally:', error);
-    }
-  }
-  return { cues: offlineCaptionCues(input.text, input.start, input.duration), provider: 'offline' };
-}
-
 /** Timeline summary → editing notes. */
-export async function generateSuggestions(summary: string): Promise<{ suggestions: SuggestionsPayload['suggestions']; provider: AiProviderName }> {
-  const provider = activeProvider();
-  if (!provider) {
-    return { suggestions: [], provider: 'offline' };
-  }
-  const raw = await provider.generateJson({
-    system: SUGGESTION_SYSTEM,
-    prompt: summary,
-    schemaHint: SUGGESTION_SCHEMA_HINT,
-    temperature: 0.4,
-    maxTokens: 900,
-  });
-  return { suggestions: suggestionsSchema.parse(raw).suggestions, provider: provider.name };
-}
-
 /** Storyboard → titles, description, hashtags. */
-export async function generateTitles(topic: string, script: string): Promise<{ payload: TitlesPayload; provider: AiProviderName }> {
-  const provider = activeProvider();
-  if (!provider) {
-    return {
-      payload: { titles: [topic], description: script.slice(0, 300), hashtags: [] },
-      provider: 'offline',
-    };
-  }
-  const raw = await provider.generateJson({
-    system: TITLES_SYSTEM,
-    prompt: `Topic: ${topic}\n\nScript:\n${script.slice(0, 3000)}`,
-    schemaHint: TITLES_SCHEMA_HINT,
-    temperature: 0.9,
-    maxTokens: 700,
-  });
-  return { payload: titlesSchema.parse(raw), provider: provider.name };
-}

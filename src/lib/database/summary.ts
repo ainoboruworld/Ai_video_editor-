@@ -11,7 +11,7 @@ export function toSummary(project: Project): ProjectSummary {
     updatedAt: project.updatedAt,
     createdAt: project.createdAt,
     thumbnailUrl: firstVisual?.thumbnailUrl ?? null,
-    sceneCount: project.storyboard?.scenes.length ?? 0,
+    sceneCount: project.sequence.tracks.reduce((total, track) => total + track.clips.length, 0),
     assetCount: project.assets.length,
   };
 }

@@ -29,8 +29,6 @@ const FORMATS: { aspect: AspectRatio; label: string; platforms: string; ratio: s
   { aspect: '4:5', label: 'Portrait', platforms: 'Instagram feed', ratio: 'aspect-[4/5]' },
 ];
 
-const DURATIONS = [15, 30, 45, 60, 90];
-
 const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini',
   groq: 'Groq',
@@ -42,12 +40,9 @@ export function ProjectsHome() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [capabilities, setCapabilities] = useState<AiCapabilities | null>(null);
-  const [prompt, setPrompt] = useState('');
   const [aspect, setAspect] = useState<AspectRatio>('9:16');
-  const [duration, setDuration] = useState(30);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'generate' | 'edit'>('generate');
 
   const refresh = useCallback(async () => {
     try {
@@ -68,25 +63,18 @@ export function ProjectsHome() {
   }, [refresh]);
 
   const create = useCallback(
-    async (intent: 'prompt' | 'blank' | 'edit') => {
+    async () => {
       setCreating(true);
       setError(null);
       try {
-        const usePrompt = intent === 'prompt' && prompt.trim().length > 0;
-        const name = usePrompt ? titleFromPrompt(prompt) : intent === 'edit' ? 'My video' : 'Untitled project';
-        const { project } = await api.createProject({ name, aspect });
-        const query = usePrompt
-          ? `?prompt=${encodeURIComponent(prompt.trim())}&duration=${duration}`
-          : intent === 'edit'
-            ? '?mode=edit'
-            : '';
-        router.push(`/projects/${project.id}${query}`);
+        const { project } = await api.createProject({ name: 'My video', aspect });
+        router.push(`/projects/${project.id}`);
       } catch (caught) {
         setError(caught instanceof ApiClientError ? caught.message : 'Could not create the project');
         setCreating(false);
       }
     },
-    [aspect, duration, prompt, router],
+    [aspect, router],
   );
 
   const aiBadge = useMemo(() => {
@@ -117,92 +105,23 @@ export function ProjectsHome() {
 
         <section className="mx-auto max-w-3xl px-6 pb-16 pt-8 text-center">
           <h1 className="text-balance text-3xl font-semibold tracking-tight text-ink-0 sm:text-4xl">
-            {mode === 'generate' ? 'Describe a video. Get a real edit.' : 'Upload a video. Let AI cut it.'}
+            Upload your video. Edit it in a fraction of the time.
           </h1>
-          <p className="mx-auto mt-3 max-w-[52ch] text-sm leading-relaxed text-ink-2">
-            {mode === 'generate'
-              ? 'A prompt becomes a script, a storyboard and matched free stock footage — then lands on a multi-track timeline you can actually edit, caption, score and export.'
-              : 'Your own footage, tightened automatically: dead air and filler words removed, captions added, cutaway B-roll suggested — all on a timeline you stay in control of.'}
+          <p className="mx-auto mt-3 max-w-[54ch] text-sm leading-relaxed text-ink-2">
+            Get the transcript, cut the filler words and dead air, smooth the joins, add music, B-roll and captions,
+            then export. Every cut is a suggestion you approve — you stay the editor.
           </p>
 
-          <div className="mx-auto mt-6 flex w-fit items-center gap-1 rounded-lg border border-line bg-bg-1 p-1">
-            <button
-              type="button"
-              onClick={() => setMode('generate')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                mode === 'generate' ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
-              )}
-            >
-              <Sparkles size={13} /> Generate a video
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('edit')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                mode === 'edit' ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
-              )}
-            >
-              <Scissors size={13} /> Edit my video
-            </button>
-          </div>
+          <div className="mt-8 rounded-xl border border-line bg-bg-1 p-6 text-left shadow-panel">
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
+              <Upload size={22} className="text-ink-3" />
+              <p className="text-sm font-medium text-ink-0">Upload your video</p>
+              <p className="max-w-[46ch] text-xs leading-relaxed text-ink-2">
+                Start a project and drop your recording in. The first pass — reading the audio, finding the pauses and
+                the filler words — runs entirely in your browser.
+              </p>
 
-          {mode === 'edit' ? (
-            <div className="mt-8 rounded-xl border border-line bg-bg-1 p-6 text-left shadow-panel">
-              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
-                <Upload size={22} className="text-ink-3" />
-                <p className="text-sm font-medium text-ink-0">Bring your own footage</p>
-                <p className="max-w-[46ch] text-xs leading-relaxed text-ink-2">
-                  Start a project, upload your recording, and the auto-editor will analyse it: cut the silence, strip
-                  filler words, transcribe and caption it, then propose cutaways for what you talk about.
-                </p>
-                <div className="mt-1 flex items-center gap-1 rounded-lg bg-bg-2 p-1">
-                  {FORMATS.map((format) => (
-                    <button
-                      key={format.aspect}
-                      type="button"
-                      onClick={() => setAspect(format.aspect)}
-                      title={format.platforms}
-                      className={cn(
-                        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                        aspect === format.aspect ? 'bg-accent text-white' : 'text-ink-2 hover:text-ink-0',
-                      )}
-                    >
-                      {format.aspect}
-                    </button>
-                  ))}
-                </div>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className="mt-2"
-                  icon={<Upload size={14} />}
-                  loading={creating}
-                  onClick={() => void create('edit')}
-                >
-                  Upload and auto-edit
-                </Button>
-                <p className="text-2xs text-ink-3">
-                  Silence cutting runs entirely in your browser — no API key, nothing uploaded.
-                </p>
-              </div>
-            </div>
-          ) : (
-          <div className="mt-8 rounded-xl border border-line bg-bg-1 p-3 text-left shadow-panel">
-            <Textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              rows={3}
-              placeholder="Create a 30-second Instagram Reel about organic mangoes — farm to table, warm and appetising."
-              className="border-0 bg-transparent text-[15px] leading-relaxed focus:bg-transparent"
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void create('prompt');
-              }}
-            />
-
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-              <div className="flex items-center gap-1 rounded-lg bg-bg-2 p-1">
+              <div className="mt-1 flex items-center gap-1 rounded-lg bg-bg-2 p-1">
                 {FORMATS.map((format) => (
                   <button
                     key={format.aspect}
@@ -219,56 +138,30 @@ export function ProjectsHome() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-1 rounded-lg bg-bg-2 p-1">
-                {DURATIONS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setDuration(value)}
-                    className={cn(
-                      'rounded-md px-2 py-1 text-xs font-medium transition-colors',
-                      duration === value ? 'bg-bg-3 text-ink-0' : 'text-ink-3 hover:text-ink-1',
-                    )}
-                  >
-                    {value}s
-                  </button>
-                ))}
-              </div>
-
-              <div className="ml-auto flex items-center gap-2">
-                <Button variant="ghost" size="md" onClick={() => void create('blank')} disabled={creating}>
-                  Start blank
-                </Button>
-                <Button
-                  variant="primary"
-                  size="md"
-                  onClick={() => void create('prompt')}
-                  loading={creating}
-                  icon={<Sparkles size={14} />}
-                  disabled={prompt.trim().length < 4}
-                >
-                  Generate video
-                </Button>
-              </div>
+              <Button
+                variant="primary"
+                size="lg"
+                className="mt-2"
+                icon={<Scissors size={14} />}
+                loading={creating}
+                onClick={() => void create()}
+              >
+                Edit My Video
+              </Button>
+              <p className="text-2xs text-ink-3">
+                No API key needed to cut pauses or paste a transcript. Keys only add hosted transcription and B-roll.
+              </p>
             </div>
           </div>
-          )}
 
           {error ? <p className="mt-3 text-xs text-danger">{error}</p> : null}
-          {capabilities && !capabilities.ai.available && mode === 'generate' ? (
-            <p className="mt-3 text-2xs text-ink-3">
-              No AI key configured — prompts still produce an editable structural draft. Add a free{' '}
-              <code className="font-mono text-ink-2">GEMINI_API_KEY</code> or{' '}
-              <code className="font-mono text-ink-2">GROQ_API_KEY</code> for written scripts.
-            </p>
-          ) : null}
         </section>
       </div>
 
       <section className="mx-auto max-w-6xl px-6 py-10">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-1">Your projects</h2>
-          <Button size="sm" icon={<Plus size={13} />} onClick={() => void create('blank')} disabled={creating}>
+          <Button size="sm" icon={<Plus size={13} />} onClick={() => void create()} disabled={creating}>
             New project
           </Button>
         </div>
@@ -390,9 +283,3 @@ function ProjectCard({ project, onChanged }: { project: ProjectSummary; onChange
   );
 }
 
-function titleFromPrompt(prompt: string): string {
-  const cleaned = prompt.replace(/\s+/g, ' ').trim();
-  const about = cleaned.match(/\babout\s+(.+)$/i)?.[1] ?? cleaned;
-  const words = about.split(' ').slice(0, 6).join(' ');
-  return words.charAt(0).toUpperCase() + words.slice(1).replace(/[.,]$/, '');
-}

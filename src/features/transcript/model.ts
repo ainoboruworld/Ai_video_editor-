@@ -8,11 +8,25 @@
  */
 import type { CaptionCue } from '@/types';
 
+/** A single timed word, when the source gave us that resolution. */
+export interface TranscriptWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface TranscriptSegment {
   id: string;
   start: number;
   end: number;
   text: string;
+  /**
+   * Present only when the transcript came from a backend that reports word
+   * timings. Filler cuts use them when they exist and fall back to interpolating
+   * across the segment when they do not — so a pasted transcript still works,
+   * it just says its timings are estimates.
+   */
+  words?: TranscriptWord[];
 }
 
 export type TranscriptSource = 'local' | 'hosted' | 'manual';
@@ -76,7 +90,15 @@ export function segmentsToCues(segments: TranscriptSegment[], maxWords = 6): Cap
 /** Whisper cues (hosted or local) become segments. */
 export function cuesToSegments(cues: CaptionCue[]): TranscriptSegment[] {
   return normaliseSegments(
-    cues.map((cue) => ({ id: segmentId(), start: cue.start, end: cue.end, text: cue.text })),
+    cues.map((cue) => ({
+      id: segmentId(),
+      start: cue.start,
+      end: cue.end,
+      text: cue.text,
+      // Word timings are what let a filler cut hit the actual sound rather than
+      // an interpolated position, so they are carried through when present.
+      words: cue.words?.length ? cue.words.map((word) => ({ text: word.text, start: word.start, end: word.end })) : undefined,
+    })),
   );
 }
 

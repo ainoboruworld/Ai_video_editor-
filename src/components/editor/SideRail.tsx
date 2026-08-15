@@ -7,7 +7,6 @@ import {
   FileText,
   Scissors,
   Search,
-  Sparkles,
   SlidersHorizontal,
   Type,
   ArrowRightLeft,
@@ -19,11 +18,10 @@ import type { PanelId } from '@/state/editorStore';
 export type RailId = PanelId;
 
 const ITEMS: { id: RailId; label: string; icon: React.ReactNode }[] = [
+  { id: 'edit', label: 'Edit', icon: <Scissors size={16} /> },
+  { id: 'transcript', label: 'Transcript', icon: <FileText size={16} /> },
   { id: 'media', label: 'Media', icon: <Film size={16} /> },
   { id: 'broll', label: 'B-roll', icon: <Search size={16} /> },
-  { id: 'ai', label: 'Generate', icon: <Sparkles size={16} /> },
-  { id: 'autoedit', label: 'Auto-edit', icon: <Scissors size={16} /> },
-  { id: 'transcript', label: 'Transcript', icon: <FileText size={16} /> },
   { id: 'text', label: 'Text', icon: <Type size={16} /> },
   { id: 'captions', label: 'Captions', icon: <Captions size={16} /> },
   { id: 'audio', label: 'Audio', icon: <Music size={16} /> },

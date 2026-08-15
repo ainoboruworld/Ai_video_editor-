@@ -28,9 +28,6 @@ export function TopBar({ onExport }: { onExport: () => void }) {
   const redo = useEditorStore((state) => state.redo);
   const history = useEditorStore((state) => state.history);
   useEditorStore((state) => state.historyTick); // re-render when history changes
-  const storyboard = useEditorStore((state) => state.storyboard);
-  const storyboardOpen = useEditorStore((state) => state.storyboardOpen);
-  const setStoryboardOpen = useEditorStore((state) => state.setStoryboardOpen);
   const capabilities = useEditorStore((state) => state.capabilities);
   const saveNow = useEditorStore((state) => state.saveNow);
 
@@ -106,18 +103,6 @@ export function TopBar({ onExport }: { onExport: () => void }) {
           <Badge tone="warn" className="hidden md:inline-flex">
             <CloudOff size={10} /> Temporary storage
           </Badge>
-        ) : null}
-
-        {storyboard ? (
-          <Button
-            size="sm"
-            variant={storyboardOpen ? 'primary' : 'secondary'}
-            icon={<LayoutGrid size={13} />}
-            onClick={() => setStoryboardOpen(!storyboardOpen)}
-          >
-            Storyboard
-            <span className="ml-1 rounded bg-black/20 px-1 text-2xs">{storyboard.scenes.length}</span>
-          </Button>
         ) : null}
 
         <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={onExport}>

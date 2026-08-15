@@ -55,16 +55,23 @@ export function audibleClips(seq: Sequence, time: number): { clip: Clip; track: 
   return out;
 }
 
+/**
+ * Transitions that work by taking the picture away. Slide, zoom and blur carry
+ * their own mechanism and stay fully opaque — fading them as well would make
+ * every transition a variation on the same dip.
+ */
+const OPACITY_TRANSITIONS = new Set(['fade', 'cross-dissolve', 'dip-to-black', 'dip-to-white']);
+
 /** Opacity contribution of clip transitions and keyframes at a local time. */
 export function clipOpacity(clip: Clip, localTime: number): number {
   let opacity = interpolate(clip.keyframes.opacity, localTime, clip.transform.opacity);
   const tin = clip.transitionIn;
-  if (tin && tin.duration > 0 && localTime < tin.duration) {
+  if (tin && tin.duration > 0 && localTime < tin.duration && OPACITY_TRANSITIONS.has(tin.kind)) {
     opacity *= easeInOut(localTime / tin.duration);
   }
   const tout = clip.transitionOut;
   const remaining = clip.duration - localTime;
-  if (tout && tout.duration > 0 && remaining < tout.duration) {
+  if (tout && tout.duration > 0 && remaining < tout.duration && OPACITY_TRANSITIONS.has(tout.kind)) {
     opacity *= easeInOut(Math.max(0, remaining) / tout.duration);
   }
   return Math.max(0, Math.min(1, opacity));
@@ -74,14 +81,16 @@ function easeInOut(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
-/** Extra transform contributed by slide/zoom transitions. */
-function transitionOffset(clip: Clip, localTime: number, width: number): { dx: number; scale: number } {
+/** Extra transform and softening contributed by slide/zoom/blur transitions. */
+function transitionOffset(clip: Clip, localTime: number, width: number): { dx: number; scale: number; blur: number } {
   let dx = 0;
   let scale = 1;
+  let blur = 0;
   const apply = (kind: string, progress: number, incoming: boolean) => {
     const eased = easeInOut(Math.max(0, Math.min(1, progress)));
     if (kind === 'slide') dx += (incoming ? -1 : 1) * (1 - eased) * width * 0.35;
     if (kind === 'zoom') scale *= incoming ? 1 + (1 - eased) * 0.18 : 1 - (1 - eased) * 0.12;
+    if (kind === 'blur') blur = Math.max(blur, (1 - eased) * width * 0.012);
   };
   if (clip.transitionIn && clip.transitionIn.duration > 0 && localTime < clip.transitionIn.duration) {
     apply(clip.transitionIn.kind, localTime / clip.transitionIn.duration, true);
@@ -90,7 +99,7 @@ function transitionOffset(clip: Clip, localTime: number, width: number): { dx: n
   if (clip.transitionOut && clip.transitionOut.duration > 0 && remaining < clip.transitionOut.duration) {
     apply(clip.transitionOut.kind, remaining / clip.transitionOut.duration, false);
   }
-  return { dx, scale };
+  return { dx, scale, blur };
 }
 
 export function filterString(clip: Clip): string {
@@ -204,7 +213,10 @@ export function drawFrame(
       };
     }
 
-    const filter = filterString(clip);
+    // A blur transition stacks on top of whatever the clip's own filters say.
+    const filter = [filterString(clip), motion.blur > 0.05 ? `blur(${motion.blur.toFixed(1)}px)` : '']
+      .filter(Boolean)
+      .join(' ');
     if (filter) ctx.filter = filter;
 
     const centerX = pip ? width - frameW / 2 - width * 0.04 : width / 2;

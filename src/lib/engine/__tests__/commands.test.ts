@@ -68,6 +68,21 @@ describe('commands', () => {
     expect(sequenceDuration(after)).toBe(8);
   });
 
+  it('gives every half of a repeatedly-split clip its own id', () => {
+    // Three ripple deletes cut the same clip apart; if the split ids collided,
+    // a later command addressed at one half would hit all of them.
+    const seq = seqWithClip();
+    const after = [
+      { type: 'REMOVE_RANGE' as const, start: 8, end: 9, ripple: true },
+      { type: 'REMOVE_RANGE' as const, start: 5, end: 6, ripple: true },
+      { type: 'REMOVE_RANGE' as const, start: 2, end: 3, ripple: true },
+    ].reduce(applyCommand, seq);
+
+    const ids = after.tracks[0]!.clips.map((clip) => clip.id);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('speed change preserves source range', () => {
     const seq = seqWithClip();
     const after = applyCommand(seq, { type: 'CHANGE_SPEED', clipId: 'c1', speed: 2 });

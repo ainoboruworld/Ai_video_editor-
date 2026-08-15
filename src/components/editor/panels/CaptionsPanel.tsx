@@ -1,10 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Captions, Mic, Trash2, Type, Wand2 } from 'lucide-react';
+import { Captions, Mic, Trash2, Type } from 'lucide-react';
 import { CAPTION_PRESETS } from '@/features/timeline/compositor';
 import { renderTimelineAudio } from '@/features/captions/extractAudio';
-import { generateCaptionsFromScript } from '@/features/ai/actions';
 import { api, ApiClientError } from '@/lib/api-client';
 import { trackByRole, type CaptionStyleName, type EditorCommand } from '@/lib/engine';
 import { useEditorStore } from '@/state/editorStore';
@@ -13,14 +12,14 @@ import { toast } from '@/state/toastStore';
 import { cn } from '@/lib/cn';
 
 /**
- * Captions: transcribe the real timeline audio, or derive cues from the
- * storyboard script. Either way the result is ordinary caption clips that can
- * be retimed, restyled and rewritten on the timeline.
+ * Captions from the real timeline audio. The result is ordinary caption clips
+ * that can be retimed, restyled and rewritten like anything else on the
+ * timeline. Building captions from an existing transcript lives in the Edit and
+ * Transcript panels, which do it without a second transcription request.
  */
 export function CaptionsPanel() {
   const sequence = useEditorStore((state) => state.sequence);
   const assets = useEditorStore((state) => state.assets);
-  const storyboard = useEditorStore((state) => state.storyboard);
   const capabilities = useEditorStore((state) => state.capabilities);
   const apply = useEditorStore((state) => state.apply);
   const select = useEditorStore((state) => state.select);
@@ -95,31 +94,11 @@ export function CaptionsPanel() {
           <p className="text-2xs leading-relaxed text-ink-3">
             Automatic captions need a transcription provider — a free{' '}
             <code className="font-mono">GEMINI_API_KEY</code> or <code className="font-mono">GROQ_API_KEY</code> is
-            enough. You can still generate captions from the script, or type them by hand.
+            enough. You can still build captions from a transcript in the Edit panel, or type them by hand.
           </p>
         ) : null}
         {status ? <p className="text-2xs text-ink-2">{status}</p> : null}
 
-        <Button
-          size="sm"
-          className="w-full justify-start"
-          icon={<Wand2 size={12} />}
-          disabled={!storyboard}
-          loading={busy === 'script'}
-          onClick={async () => {
-            setBusy('script');
-            try {
-              await generateCaptionsFromScript();
-              toast.success('Captions generated from the script');
-            } catch (error) {
-              toast.error('Could not generate captions', error instanceof Error ? error.message : undefined);
-            } finally {
-              setBusy(null);
-            }
-          }}
-        >
-          Generate from script
-        </Button>
       </div>
 
       <div className="border-b border-line p-2">

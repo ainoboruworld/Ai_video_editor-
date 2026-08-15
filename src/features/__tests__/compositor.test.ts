@@ -43,6 +43,24 @@ describe('clipOpacity', () => {
     expect(clipOpacity(withOut, 4)).toBeCloseTo(0, 5);
     expect(clipOpacity(withOut, 3)).toBeCloseTo(1, 5);
   });
+
+  it('meets at zero on both sides of a butt join, which is what makes the dip', () => {
+    // The join a recut leaves behind: the outgoing clip's last frame and the
+    // incoming clip's first frame are both fully faded, so the cut lands in
+    // darkness rather than on a hard jump.
+    const outgoing = { ...clip, transitionOut: { kind: 'dip-to-black' as const, duration: 0.5, position: 'out' as const } };
+    const incoming = { ...clip, transitionIn: { kind: 'dip-to-black' as const, duration: 0.5, position: 'in' as const } };
+    expect(clipOpacity(outgoing, 4)).toBeCloseTo(0, 5);
+    expect(clipOpacity(incoming, 0)).toBeCloseTo(0, 5);
+  });
+
+  it('leaves slide, zoom and blur fully opaque — they are not fades', () => {
+    for (const kind of ['slide', 'zoom', 'blur'] as const) {
+      const withIn = { ...clip, transitionIn: { kind, duration: 1, position: 'in' as const } };
+      expect(clipOpacity(withIn, 0)).toBe(1);
+      expect(clipOpacity(withIn, 0.5)).toBe(1);
+    }
+  });
 });
 
 describe('visibleLayers', () => {

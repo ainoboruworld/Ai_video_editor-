@@ -11,8 +11,6 @@ import type {
   ProjectSummary,
   RenderJob,
   StockMediaItem,
-  Storyboard,
-  StoryboardScene,
 } from '@/types';
 import type { AspectRatio } from '@/lib/engine';
 
@@ -129,14 +127,6 @@ export const api = {
     }>('/api/upload/sign', post(input)),
 
   // ------------------------------------------------------------------ AI --
-  generateScript: (input: {
-    prompt: string;
-    durationSeconds: number;
-    aspect: AspectRatio;
-    tone?: string;
-    sceneCount?: number;
-    provider?: string;
-  }) => request<{ storyboard: Storyboard }>('/api/ai/script', post(input)),
 
   findBroll: (input: {
     aspect: AspectRatio;
@@ -170,24 +160,6 @@ export const api = {
       provider: string;
     }>('/api/ai/edit', post(input)),
 
-  generateCaptions: (segments: { id: string; text: string; start: number; duration: number }[]) =>
-    request<{ results: { id: string; cues: { text: string; start: number; end: number }[]; provider: string }[] }>(
-      '/api/ai/captions',
-      post({ segments }),
-    ),
-
-  suggestEdits: (summary: string) =>
-    request<{ suggestions: { title: string; detail: string; severity: 'info' | 'improve' | 'fix' }[]; provider: string }>(
-      '/api/ai/suggest',
-      post({ summary }),
-    ),
-
-  generateTitles: (topic: string, script: string) =>
-    request<{ payload: { titles: string[]; description: string; hashtags: string[] }; provider: string }>(
-      '/api/ai/titles',
-      post({ topic, script }),
-    ),
-
   transcribe: (audio: Blob, language?: string) => {
     const form = new FormData();
     form.append('audio', audio, 'timeline.wav');
@@ -204,4 +176,3 @@ export const api = {
   getRenderJob: (id: string) => request<{ job: RenderJob }>(`/api/render/${id}`),
 };
 
-export type { StoryboardScene };

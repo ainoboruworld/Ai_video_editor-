@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_THUMBNAIL_CHARS } from '@/lib/storage/limits';
 
 /**
  * Validation for untrusted project documents arriving from the browser.
@@ -95,7 +96,7 @@ export const assetSchema = z
     kind: z.enum(['video', 'audio', 'image']),
     name: z.string().max(300),
     url: z.string().max(2000),
-    thumbnailUrl: z.string().max(2000).nullable(),
+    thumbnailUrl: z.string().max(MAX_THUMBNAIL_CHARS).nullable(),
     duration: finite.min(0).nullable(),
     width: z.number().int().min(0).nullable(),
     height: z.number().int().min(0).nullable(),
@@ -118,41 +119,12 @@ export const assetSchema = z
   })
   .passthrough();
 
-export const storyboardSceneSchema = z
-  .object({
-    id: z.string().min(1).max(120),
-    index: z.number().int().min(0).max(200),
-    title: z.string().max(200),
-    duration: finite.min(0.1).max(3600),
-    script: z.string().max(4000),
-    onScreenText: z.string().max(500),
-    visual: z.string().max(1000),
-    brollQueries: z.array(z.string().max(200)).max(10),
-    assetId: z.string().max(120).nullable(),
-    transition: z.string().max(40),
-    clipIds: z.array(z.string().max(120)).max(50),
-  })
-  .passthrough();
-
 export const projectDocSchema = z.object({
   name: z.string().min(1).max(160),
   aspect: z.enum(['16:9', '9:16', '1:1', '4:5', '4:3']),
   fps: z.number().min(1).max(120),
   sequence: sequenceSchema,
   assets: z.array(assetSchema).max(500),
-  storyboard: z
-    .object({
-      prompt: z.string().max(4000),
-      title: z.string().max(300),
-      hook: z.string().max(1000),
-      cta: z.string().max(1000),
-      tone: z.string().max(120),
-      scenes: z.array(storyboardSceneSchema).max(60),
-      provider: z.enum(['groq', 'openrouter', 'cloudflare', 'huggingface', 'ollama', 'gemini', 'openai', 'offline']),
-      createdAt: z.string().max(40),
-    })
-    .nullable()
-    .optional(),
   transcript: z
     .object({
       segments: z

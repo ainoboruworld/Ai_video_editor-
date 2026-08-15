@@ -19,10 +19,11 @@ import {
   mergeRanges,
   speechRanges,
   totalDuration,
-  type LoudnessEnvelope,
+  type AudioAnalysis,
   type Range,
   type TranscriptWord,
 } from '@/features/analysis/audioAnalysis';
+import { countSeams, cutTransitionCommands, type CutTransitionChoice } from '@/features/ai/cutTransitions';
 import { newId } from '@/features/broll/assemble';
 import { api } from '@/lib/api-client';
 import { trackByRole, type CaptionStyleName, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
@@ -30,19 +31,16 @@ import { useEditorStore } from '@/state/editorStore';
 import type { AspectRatio } from '@/lib/engine';
 import type { CaptionCue, StockMediaItem } from '@/types';
 
-export interface AnalysisResult {
-  envelope: LoudnessEnvelope;
-  silences: Range[];
-  speech: Range[];
-  /** Seconds that would be removed by cutting the detected silence. */
-  removableSeconds: number;
-}
+/** Kept as the name the editor UI already uses. */
+export type AnalysisResult = AudioAnalysis;
 
 /** Cuts, expressed in timeline seconds, ready to be applied. */
 export interface CutPlan {
   cuts: Range[];
   removedSeconds: number;
   label: string;
+  /** What to put on the joins the cuts leave behind. Omitted means hard cuts. */
+  transition?: CutTransitionChoice;
 }
 
 /**
@@ -170,11 +168,40 @@ export async function analysePrimaryClip(signal?: AbortSignal): Promise<Analysis
   return { envelope, silences, speech, removableSeconds: totalDuration(silences) };
 }
 
-/** Applies a cut plan as one undoable edit. */
+/**
+ * Applies a cut plan as one undoable edit.
+ *
+ * When the plan carries a transition, the seams it creates are decorated in the
+ * same batch, so a single undo takes the cuts and the transitions back together
+ * rather than leaving half the edit behind.
+ */
 export function applyCutPlan(plan: CutPlan): boolean {
   if (plan.cuts.length === 0) return false;
   const state = useEditorStore.getState();
-  return state.apply(cutsToCommands(plan.cuts), plan.label);
+  const sequence = state.sequence;
+  if (!sequence) return false;
+
+  const cutCommands = cutsToCommands(plan.cuts);
+  const transitions = plan.transition
+    ? cutTransitionCommands({ sequence, cutCommands, cuts: plan.cuts, choice: plan.transition })
+    : [];
+
+  return state.apply([...cutCommands, ...transitions], plan.label);
+}
+
+/** How many seams a plan's transition would land on, for messaging before the edit. */
+export function countPlanTransitions(plan: CutPlan): number {
+  const state = useEditorStore.getState();
+  const sequence = state.sequence;
+  if (!sequence || !plan.transition || plan.cuts.length === 0) return 0;
+  return countSeams(
+    cutTransitionCommands({
+      sequence,
+      cutCommands: cutsToCommands(plan.cuts),
+      cuts: plan.cuts,
+      choice: plan.transition,
+    }),
+  );
 }
 
 /** Where transcription runs: on this device, or on a hosted provider. */
@@ -309,44 +336,6 @@ export function applyCallouts(callouts: { start: number; duration: number; text:
 export interface BrollSuggestion {
   cue: { start: number; duration: number; query: string; reason: string };
   items: StockMediaItem[];
-}
-
-/** The search endpoint accepts this many scenes per request. */
-const BROLL_BATCH_SIZE = 24;
-
-/**
- * Searches stock footage for each B-roll cue the AI proposed.
- *
- * A plan can propose more cues than the search endpoint takes in one request,
- * so they are sent in batches — dropping the surplus would silently lose
- * suggestions the user was told they would get.
- */
-export async function findCutawayBroll(
-  cues: { start: number; duration: number; query: string; reason: string }[],
-  aspect: AspectRatio,
-): Promise<BrollSuggestion[]> {
-  if (cues.length === 0) return [];
-
-  const results = new Map<number, BrollSuggestion['items']>();
-
-  for (let offset = 0; offset < cues.length; offset += BROLL_BATCH_SIZE) {
-    const batch = cues.slice(offset, offset + BROLL_BATCH_SIZE);
-    const { recommendations } = await api.findBroll({
-      aspect,
-      perScene: 4,
-      scenes: batch.map((cue, index) => ({
-        id: String(offset + index),
-        visual: cue.query,
-        duration: cue.duration,
-        queries: [cue.query],
-      })),
-    });
-    for (const recommendation of recommendations) {
-      results.set(Number(recommendation.sceneId), recommendation.items);
-    }
-  }
-
-  return cues.map((cue, index) => ({ cue, items: results.get(index) ?? [] }));
 }
 
 /** Places an approved cutaway over the speaker on the B-roll track. */

@@ -32,7 +32,6 @@ export function newProject(input: {
     fps: input.fps ?? 30,
     sequence: { ...sequence, fps: input.fps ?? 30 },
     assets: [],
-    storyboard: null,
     transcript: null,
     settings: { ...DEFAULT_SETTINGS },
     createdAt: now,
@@ -67,7 +66,6 @@ export function mergeProject(existing: Project, input: ProjectDocInput): Project
     // validated payload is re-cast to the engine model here.
     sequence: input.sequence as unknown as Project['sequence'],
     assets: input.assets as unknown as Project['assets'],
-    storyboard: (input.storyboard ?? null) as unknown as Project['storyboard'],
     transcript: (input.transcript ?? null) as unknown as Project['transcript'],
     settings: { ...DEFAULT_SETTINGS, ...existing.settings, ...(input.settings ?? {}) },
     updatedAt: new Date().toISOString(),
