@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg-0 text-ink-0 font-sans antialiased;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background: rgba(124, 92, 255, 0.35);
+  }
+
+  /* Compact, unobtrusive scrollbars — the timeline is dense enough already. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2f3542 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #2a303b;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #39414f;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  input[type='range'] {
+    @apply h-1 w-full appearance-none rounded-full bg-bg-3 outline-none;
+  }
+  input[type='range']::-webkit-slider-thumb {
+    @apply h-3 w-3 appearance-none rounded-full bg-ink-1 transition-colors;
+  }
+  input[type='range']:hover::-webkit-slider-thumb {
+    @apply bg-accent;
+  }
+  input[type='range']::-moz-range-thumb {
+    @apply h-3 w-3 rounded-full border-0 bg-ink-1;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-0;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply border border-line bg-bg-1;
+  }
+  .hairline {
+    @apply border-line;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .grid-bg {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}

@@ -1,65 +1,83 @@
-# API Contract
+# HTTP API
 
-Base URL: `http://localhost:4001/api`. All bodies JSON unless noted. All IDs are cuid strings.
-Media files served at `http://localhost:4001/media/<storagePath>`.
+All routes are Next.js route handlers under `src/app/api`, run on the Node
+runtime, and are scoped to the caller's identity (an http-only cookie today, a
+real auth provider when one is wired in — see `src/lib/auth/session.ts`). API
+keys never leave the server. Errors are JSON: `{ error, code, details? }`.
+
+## Capabilities
+
+```
+GET /api/config
+→ { capabilities: { ai, stock, storage, database, transcription, rendering }, ownerId }
+```
+
+Used by the UI to show what is really available.
 
 ## Projects
-- `GET /projects` → `Project[]`
-- `POST /projects` `{name}` → `Project`
-- `GET /projects/:id` → `Project` (includes `sequences: SequenceRow[]`, `assets: Asset[]`)
-- `PATCH /projects/:id` `{name?}` → `Project`
-- `DELETE /projects/:id` → `{ok:true}`
-- `POST /projects/:id/duplicate` → `Project`
-
-`Project = {id, name, createdAt, updatedAt, thumbnailUrl: string|null}`
-
-## Sequences
-Sequence documents are the `Sequence` JSON from `@ave/editor-core`, stored whole.
-- `GET /sequences/:id` → `{id, projectId, name, doc: Sequence, version, updatedAt}`
-- `POST /projects/:id/sequences` `{name, aspect?}` → sequence row (server creates doc via `makeSequence`)
-- `PUT /sequences/:id` `{doc, version}` → `{version}` (optimistic; bumps version, snapshots previous doc into SequenceVersion)
-- `GET /sequences/:id/versions` → `{version, createdAt}[]`
-- `POST /sequences/:id/restore` `{version}` → sequence row
-
-## Assets (media library)
-- `POST /projects/:id/assets` — multipart upload, field `file`. Creates asset with `status:'processing'`, kicks background pipeline (ffprobe → thumbnail → waveform → proxy for videos > 720p). Returns asset immediately.
-- `GET /projects/:id/assets` → `Asset[]`
-- `GET /assets/:id` → `Asset`
-- `DELETE /assets/:id`
 
 ```
-Asset = {
-  id, projectId, kind: 'video'|'audio'|'image', name, status: 'processing'|'ready'|'error',
-  originalUrl, proxyUrl: string|null, thumbnailUrl: string|null, waveformUrl: string|null,
-  duration: number|null, width: number|null, height: number|null, fps: number|null, sizeBytes: number,
-  error: string|null
-}
-```
-Waveform is a JSON file: `{peaks: number[], samplesPerSecond: number}` (0..1 amplitudes).
-
-## Analysis
-- `POST /assets/:id/transcribe` → `{jobId}` — runs faster-whisper (python) if available; job status via `/jobs/:id`.
-- `GET /assets/:id/transcript` → `{segments: {id,start,end,text,words:{text,start,end,confidence}[]}[]} | null`
-- `POST /assets/:id/silence` `{minDuration?=0.6, noiseDb?=-35}` → `{sections: {start,end,duration}[]}` (ffmpeg silencedetect, synchronous)
-- `GET /assets/:id/fillers` → `{words: {text,start,end,segmentId}[]}` (from transcript)
-- `POST /assets/:id/scenes` → `{jobId}` — scene detection (ffmpeg scdet). `GET /assets/:id/scenes` → `{scenes:{id,start,end,thumbnailUrl}[]}`
-- `POST /assets/:id/analyze` → `{jobId}` — full pipeline: transcribe → scenes → clip suggestions. Job `progress` has named steps.
-- `GET /assets/:id/suggestions?kind=clip|broll|chapter|hook` → suggestions list
-
-```
-Suggestion = {id, assetId, kind, start, end, title, description, score: number|null, payload: any}
+GET    /api/projects              → { projects: ProjectSummary[] }
+POST   /api/projects              { name, aspect, fps? }        → { project }
+GET    /api/projects/:id                                        → { project }
+PUT    /api/projects/:id          full document + version       → { project }
+PATCH  /api/projects/:id          { name } | { action:'duplicate' } → { project }
+DELETE /api/projects/:id                                        → { deleted: true }
 ```
 
-- `POST /assets/:id/clips` `{count, minDuration, maxDuration, platform?, style?}` → `{jobId}`; results as suggestions kind='clip'. Uses local heuristics + optional Ollama (`OLLAMA_URL`).
-- `POST /assets/:id/hooks` `{start,end}` → `{hooks: string[]}` (heuristic or Ollama)
+`PUT` validates the whole document (`src/lib/database/schema.ts`) and rejects a
+stale `version` with 409. Reading or writing another owner's project returns 404.
 
-## AI assistant
-- `POST /sequences/:id/ai` `{prompt, assetId?}` → `{commands: EditorCommand[], summary: string}` — commands are validated server-side with `validateCommands` before returning; the client previews and applies them through the command engine.
+## Stock media
 
-## Jobs
-- `GET /jobs/:id` → `{id, type, status: 'queued'|'running'|'done'|'error', progress: number, step: string|null, error: string|null, result: any}`
+```
+GET  /api/media/search?q=&type=video|image|all&aspect=&orientation=&duration=&page=&perPage=
+→ { items: StockMediaItem[], providers, missingKeys, errors, query }
+
+GET  /api/media/proxy?src=<provider URL>      same-origin, range-aware passthrough
+POST /api/assets/import  { projectId, item, persist? }  → { asset }
+```
+
+`missingKeys` names providers that are not configured, so the UI can tell the
+user what to add. `/api/media/proxy` only accepts the stock providers' CDN hosts.
+
+## Uploads
+
+```
+POST /api/upload/sign  { projectId, filename, contentType, sizeBytes } → { ticket, kind }
+POST /api/upload?key=  raw body (fallback path, ≤ 4 MB)                → { key, url, sizeBytes }
+GET  /api/files/*                                                      → the object
+```
+
+With object storage configured the ticket is a presigned PUT and the browser
+uploads straight to the bucket. File type and size are validated server-side, and
+upload keys are namespaced per owner and project.
+
+## AI
+
+```
+POST /api/ai/script    { prompt, durationSeconds, aspect, tone?, sceneCount? } → { storyboard }
+POST /api/ai/broll     { aspect, scenes[], perScene?, type?, topic? }          → { recommendations, providers, missingKeys }
+POST /api/ai/captions  { segments[] }                                          → { results }
+POST /api/ai/suggest   { summary }                                             → { suggestions, provider }   503 without a provider
+POST /api/ai/titles    { topic, script }                                       → { payload, provider }
+```
+
+`storyboard.provider` is `openai`, `gemini` or `offline`, so the client always
+knows what produced the result.
+
+## Captions from audio
+
+```
+POST /api/captions/transcribe   multipart: audio (16 kHz mono WAV), language?
+→ { cues: [{ text, start, end, words[] }], provider }        503 without a provider
+```
 
 ## Rendering
-- `POST /sequences/:id/render` `{resolution: '720p'|'1080p'|'4k', fps: 24|25|30|60, quality: 'draft'|'standard'|'high'|'maximum'}` → `{jobId}`
-- Job result: `{outputUrl}` — downloadable MP4 (H.264/AAC).
-- `POST /jobs/:id/cancel` → `{ok:true}`
+
+```
+POST  /api/render        { projectId, resolution, fps, format }  → 202 { job }   503 without a worker
+GET   /api/render?projectId=                                     → { jobs }
+GET   /api/render/:id                                            → { job }
+PATCH /api/render/:id    worker-only, Bearer RENDER_WORKER_TOKEN → { job }
+```

@@ -1,41 +1,62 @@
-# Rendering
+# Rendering and export
 
-Final video rendering happens **server-side with FFmpeg** — never in the
-browser. The browser preview is a lightweight DOM/`<video>` composition of
-the same sequence document.
+There are two real export paths. Both consume the same project document, and
+neither shows progress it has not actually made.
 
-## Flow
+## 1. Browser export (default, no external service)
+
+`src/features/rendering/browserExport.ts`
 
 ```
-Export dialog → POST /sequences/:id/render → Job (queued)
-      → worker: build plan from Sequence doc
-      → per-clip intermediates (trim, speed, scale, filters, fades)
-      → concat base track (gaps become black)
-      → overlay pass (B-roll, text via drawtext, captions, opacity)
-      → audio mix (clip audio + music tracks, volume/fades)
-      → H.264 + AAC MP4
-      → Job result { outputUrl }
+project → compositor → <canvas> ─ captureStream ─┐
+                                                 ├─ MediaRecorder → Blob → download
+Web Audio mix ─ MediaStreamDestination ──────────┘
 ```
 
-Progress is parsed from `ffmpeg -progress` and exposed through the job as
-Preparing → Rendering → Encoding → Finalizing with a percentage; jobs can be
-cancelled (the FFmpeg process is killed).
+- Plays the timeline once in real time, drawing every frame with the same
+  compositor the preview uses, at the chosen export resolution.
+- Audio is the live Web Audio mix (clip volume, fades, track mute/solo), attached
+  only when the timeline actually has audio.
+- The result is a real file the browser downloads.
 
-## Quality presets
+Container: MP4 when the browser can genuinely record H.264 (desktop Chrome,
+Edge, Safari) — the check asks for an explicit `avc1` profile, because some
+Chromium builds claim to support `video/mp4` and then emit an unplayable file.
+Otherwise WebM (VP9/VP8 + Opus), which every modern browser plays.
 
-| Preset   | CRF | Preset   |
-|----------|-----|----------|
-| draft    | 30  | veryfast |
-| standard | 23  | medium   |
-| high     | 20  | slow     |
-| maximum  | 18  | slow     |
+Trade-offs, stated plainly: recording is real time, the tab must stay in the
+foreground, and WebM files recorded this way carry no duration header (players
+still play and seek them). For frame-accurate H.264 at any length, use the cloud
+path.
 
-Resolutions 720p/1080p/4K are derived from the sequence aspect ratio; FPS
-24/25/30/60.
+## 2. Cloud rendering with Remotion
 
-## Safety
+```
+Editor ─ POST /api/render ─► job (queued)
+                              │
+                              ├─► POST <RENDER_WORKER_URL>/render  { project, size, fps }
+                              │        worker: bundle → renderMedia → file
+                              │        worker: PATCH /api/render/:id  { progress, status, outputUrl }
+                              └─◄ editor polls GET /api/render/:id
+```
 
-FFmpeg is always spawned with argument arrays (`shell: false`). Text for
-`drawtext` is passed via temp text files, never interpolated into a filter
-string, so user content cannot inject filter syntax or shell commands. All
-file paths are resolved and verified inside the API's data directory.
+- `remotion/ProjectComposition.tsx` maps the project document to Remotion
+  primitives (`OffthreadVideo`, `Img`, `Audio`, `Sequence`) with the same
+  cover-fit, transform, filter, transition, text and caption rules.
+- `scripts/render-worker.mjs` is the HTTP worker; `scripts/render-cli.mjs`
+  renders a project file locally:
+
+  ```bash
+  npm run render -- ./project.json out/video.mp4 --height 1080 --fps 30
+  ```
+
+- Vercel cannot host the worker (Remotion needs a long-lived process and a
+  headless browser). Without `RENDER_WORKER_URL`, `/api/render` returns a clear
+  503 and the editor uses the browser path instead.
+
+## Why not render in a serverless function
+
+A one-minute 1080p render takes minutes of CPU and hundreds of MB of temporary
+space. That does not fit a serverless request, so the architecture never
+pretends it does: rendering is either client-side (real time, free) or delegated
+to infrastructure built for it.

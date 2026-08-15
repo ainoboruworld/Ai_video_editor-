@@ -1,4 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "echo 'The API is a long-running FFmpeg/Fastify server and is not deployable on Vercel. Deploy apps/api/Dockerfile to Render/Railway/Fly (see docs/DEPLOYMENT.md); deploy only apps/web to Vercel.' && exit 0"
-}
