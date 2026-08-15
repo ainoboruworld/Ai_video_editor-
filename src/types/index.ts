@@ -173,7 +173,7 @@ export interface MediaSearchResponse {
 
 // ------------------------------------------------------------------- AI ----
 
-export type AiProviderName = 'openai' | 'gemini' | 'offline';
+export type AiProviderName = 'gemini' | 'groq' | 'openai' | 'offline';
 
 export interface ScriptRequest {
   prompt: string;

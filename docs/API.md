@@ -63,8 +63,8 @@ POST /api/ai/suggest   { summary }                                             â
 POST /api/ai/titles    { topic, script }                                       â†’ { payload, provider }
 ```
 
-`storyboard.provider` is `openai`, `gemini` or `offline`, so the client always
-knows what produced the result.
+`storyboard.provider` is `gemini`, `groq`, `openai` or `offline`, so the client
+always knows what produced the result.
 
 ## Captions from audio
 

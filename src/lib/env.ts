@@ -18,13 +18,17 @@ export const env = {
   PIXABAY_API_KEY: read('PIXABAY_API_KEY'),
   UNSPLASH_ACCESS_KEY: read('UNSPLASH_ACCESS_KEY'),
 
-  // AI providers
+  // AI providers, free tiers first. None of them is required.
+  GEMINI_API_KEY: read('GEMINI_API_KEY'),
+  GEMINI_MODEL: read('GEMINI_MODEL') ?? 'gemini-2.0-flash',
+  GROQ_API_KEY: read('GROQ_API_KEY'),
+  GROQ_MODEL: read('GROQ_MODEL') ?? 'llama-3.3-70b-versatile',
+  // Groq serves Whisper on its free tier, so automatic captions cost nothing.
+  GROQ_TRANSCRIBE_MODEL: read('GROQ_TRANSCRIBE_MODEL') ?? 'whisper-large-v3-turbo',
   OPENAI_API_KEY: read('OPENAI_API_KEY'),
   OPENAI_MODEL: read('OPENAI_MODEL') ?? 'gpt-4o-mini',
   OPENAI_TRANSCRIBE_MODEL: read('OPENAI_TRANSCRIBE_MODEL') ?? 'whisper-1',
-  GEMINI_API_KEY: read('GEMINI_API_KEY'),
-  GEMINI_MODEL: read('GEMINI_MODEL') ?? 'gemini-2.0-flash',
-  AI_PROVIDER: read('AI_PROVIDER'), // force a provider: openai | gemini | offline
+  AI_PROVIDER: read('AI_PROVIDER'), // force a provider: gemini | groq | openai | offline
 
   // Database
   DATABASE_URL: read('DATABASE_URL'),
@@ -56,7 +60,7 @@ export function hasAnyStockProvider(): boolean {
 }
 
 export function hasAnyAiProvider(): boolean {
-  return Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY);
+  return Boolean(env.GEMINI_API_KEY || env.GROQ_API_KEY || env.OPENAI_API_KEY);
 }
 
 export function hasObjectStorage(): boolean {

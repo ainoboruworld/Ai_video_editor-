@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deprecated deployment</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #08090c;
+        color: #b3bcca;
+        font: 15px/1.6 ui-sans-serif, system-ui, sans-serif;
+        padding: 24px;
+      }
+      main { max-width: 46ch; }
+      h1 { color: #f4f6fa; font-size: 18px; margin: 0 0 12px; }
+      code { color: #7c5cff; font-family: ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>This deployment is deprecated</h1>
+      <p>
+        The separate API service no longer exists. The application is a single Next.js app that
+        deploys from the repository root, with its API routes in <code>src/app/api</code>.
+      </p>
+      <p>
+        Point this Vercel project's Root Directory at <code>/</code> with the Next.js preset, or
+        delete it and deploy the repository root instead.
+      </p>
+    </main>
+  </body>
+</html>

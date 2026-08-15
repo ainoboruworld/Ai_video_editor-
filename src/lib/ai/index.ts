@@ -3,6 +3,7 @@ import { env } from '@/lib/env';
 import { deriveQueries } from '@/lib/media/rank';
 import type { AiProviderName, ScriptRequest, Storyboard, StoryboardScene } from '@/types';
 import { GeminiProvider } from './gemini';
+import { GroqProvider } from './groq';
 import { offlineCaptionCues, offlineStoryboard } from './offline';
 import {
   BROLL_SCHEMA_HINT,
@@ -33,7 +34,11 @@ import type { AiProvider } from './types';
 export { AiError } from './types';
 export { offlineCaptionCues, offlineStoryboard } from './offline';
 
-const providers: AiProvider[] = [new OpenAiProvider(), new GeminiProvider()];
+/**
+ * Order matters: free tiers first. OpenAI is supported but never required —
+ * the product has to stay usable at zero cost.
+ */
+const providers: AiProvider[] = [new GeminiProvider(), new GroqProvider(), new OpenAiProvider()];
 
 export function availableProviders(): AiProviderName[] {
   return providers.filter((p) => p.isConfigured()).map((p) => p.name);
@@ -41,8 +46,8 @@ export function availableProviders(): AiProviderName[] {
 
 /**
  * Resolves the provider to use. `AI_PROVIDER` forces one; otherwise the first
- * configured provider wins (OpenAI, then Gemini). Returns null when nothing is
- * configured — callers then fall back to the offline draft generator.
+ * configured free provider wins (Gemini, then Groq, then OpenAI). Returns null
+ * when nothing is configured — callers fall back to the offline draft generator.
  */
 export function activeProvider(): AiProvider | null {
   if (env.AI_PROVIDER === 'offline') return null;
