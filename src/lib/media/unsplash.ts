@@ -2,7 +2,7 @@ import 'server-only';
 import { env } from '@/lib/env';
 import { fetchWithTimeout } from '@/lib/http';
 import type { MediaSearchRequest, StockMediaItem } from '@/types';
-import { orientationOf, providerError, type MediaProvider } from './types';
+import { orientationOf, providerFailure, type MediaProvider } from './types';
 
 const API = 'https://api.unsplash.com';
 
@@ -47,7 +47,7 @@ export class UnsplashProvider implements MediaProvider {
       headers: { Authorization: `Client-ID ${key}`, 'Accept-Version': 'v1' },
       cache: 'no-store',
     });
-    if (!res.ok) throw providerError('Unsplash', 'UNSPLASH_ACCESS_KEY', res.status, 'search');
+    if (!res.ok) throw await providerFailure('Unsplash', 'UNSPLASH_ACCESS_KEY', res, 'search');
     const body = (await res.json()) as { results?: UnsplashPhoto[] };
     return (body.results ?? []).map((photo) => ({
       id: `unsplash-${photo.id}`,

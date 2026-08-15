@@ -54,10 +54,21 @@ describe('describeAiError', () => {
 describe('providerError', () => {
   it('names the environment variable to check on an auth failure', () => {
     expect(providerError('Pexels', 'PEXELS_API_KEY', 403, 'video search').message).toContain('PEXELS_API_KEY');
+    // A 403 is also what a proxy or network policy returns for a blocked
+    // request, so the message must not send the user off to rotate a key that
+    // was never actually presented.
+    expect(providerError('Pexels', 'PEXELS_API_KEY', 403, 'video search').message).toMatch(/blocked the request/i);
+    expect(providerError('Pexels', 'PEXELS_API_KEY', 401, 'video search').message).toMatch(/refused the key/i);
+    expect(providerError('Pexels', 'PEXELS_API_KEY', 401, 'video search').message).not.toMatch(/blocked the request/i);
   });
 
   it('distinguishes rate limits and outages', () => {
     expect(providerError('Pexels', 'PEXELS_API_KEY', 429, 'search').message).toContain('rate limit');
     expect(providerError('Pexels', 'PEXELS_API_KEY', 502, 'search').message).toContain('temporarily unavailable');
+  });
+
+  it('passes on what the upstream actually said', () => {
+    const message = providerError('Pexels', 'PEXELS_API_KEY', 403, 'search', 'Forbidden by gateway policy').message;
+    expect(message).toContain('Forbidden by gateway policy');
   });
 });
