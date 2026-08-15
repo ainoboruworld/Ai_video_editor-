@@ -28,10 +28,13 @@ export const env = {
   GROQ_MODEL: read('GROQ_MODEL') ?? 'llama-3.3-70b-versatile',
   // Groq serves Whisper on its free tier, so automatic captions cost nothing.
   GROQ_TRANSCRIBE_MODEL: read('GROQ_TRANSCRIBE_MODEL') ?? 'whisper-large-v3-turbo',
+  // OpenRouter reaches free Qwen models with a single key.
+  OPENROUTER_API_KEY: read('OPENROUTER_API_KEY'),
+  OPENROUTER_MODEL: read('OPENROUTER_MODEL') ?? 'qwen/qwen3-coder:free',
   OPENAI_API_KEY: read('OPENAI_API_KEY'),
   OPENAI_MODEL: read('OPENAI_MODEL') ?? 'gpt-4o-mini',
   OPENAI_TRANSCRIBE_MODEL: read('OPENAI_TRANSCRIBE_MODEL') ?? 'whisper-1',
-  AI_PROVIDER: read('AI_PROVIDER'), // force a provider: gemini | groq | openai | offline
+  AI_PROVIDER: read('AI_PROVIDER'), // force a provider: openrouter | groq | gemini | openai | offline
 
   // Database
   DATABASE_URL: read('DATABASE_URL'),
@@ -63,7 +66,7 @@ export function hasAnyStockProvider(): boolean {
 }
 
 export function hasAnyAiProvider(): boolean {
-  return Boolean(env.GEMINI_API_KEY || env.GROQ_API_KEY || env.OPENAI_API_KEY);
+  return Boolean(env.GEMINI_API_KEY || env.GROQ_API_KEY || env.OPENROUTER_API_KEY || env.OPENAI_API_KEY);
 }
 
 export function hasObjectStorage(): boolean {

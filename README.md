@@ -27,7 +27,7 @@ auto-edit: your upload → silence + filler cuts → transcript → captions →
 | Auto-edit an upload: cut silence and filler words, recut to a target length, suggest cutaways | Working (silence cutting needs no key at all) |
 | B-roll search across Pexels / Pixabay / Unsplash, ranked for the project format | Working (needs at least one free API key) |
 | Auto-fit B-roll to scene length, assemble storyboard onto the timeline | Working |
-| Captions: from script, or transcribed from the real timeline audio | Working (free Groq Whisper or Gemini audio) |
+| Captions: from script, or transcribed from the real timeline audio | Working (browser Whisper with no key, or free Groq/Gemini) |
 | Export in the browser (canvas + audio → downloadable file) | Working, no external service |
 | Cloud render with Remotion (frame-accurate H.264) | Working, needs a worker host (`RENDER_WORKER_URL`) |
 | Uploads straight to object storage | Working, needs S3-compatible storage |
@@ -66,8 +66,8 @@ See [`.env.example`](.env.example) for the annotated list and
 [docs/SETUP.md](docs/SETUP.md) for where to get each key.
 
 - **B-roll**: `PEXELS_API_KEY` (free, start here), `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY`
-- **AI**: `GEMINI_API_KEY` or `GROQ_API_KEY` — both free tiers (`OPENAI_API_KEY` is supported but never required)
-- **Captions & auto-edit**: `GROQ_API_KEY` (word-level Whisper timings) or `GEMINI_API_KEY` (sentence-level)
+- **AI**: `GROQ_API_KEY`, `OPENROUTER_API_KEY` (free Qwen models) or `GEMINI_API_KEY` — all free tiers (`OPENAI_API_KEY` is supported but never required)
+- **Captions & auto-edit**: `GROQ_API_KEY` (word-level Whisper timings), `GEMINI_API_KEY` (sentence-level), or **no key at all** — Whisper also runs in the browser
 - **Database**: `DATABASE_URL` (Postgres) — otherwise filesystem storage
 - **Object storage**: `STORAGE_*` — otherwise uploads stay in the browser tab
 - **Cloud render**: `RENDER_WORKER_URL`, `RENDER_WORKER_TOKEN`

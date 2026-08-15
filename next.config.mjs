@@ -6,6 +6,9 @@ const nextConfig = {
   outputFileTracingExcludes: {
     '**': ['remotion/**', 'node_modules/@remotion/**', 'node_modules/remotion/**'],
   },
+  // Transformers.js is loaded dynamically in the browser only; keeping it out of
+  // the server bundle avoids pulling ONNX runtime binaries into functions.
+  serverExternalPackages: ['@huggingface/transformers'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'images.pexels.com' },

@@ -4,6 +4,7 @@ import { deriveQueries } from '@/lib/media/rank';
 import type { AiProviderName, ScriptRequest, Storyboard, StoryboardScene } from '@/types';
 import { GeminiProvider } from './gemini';
 import { GroqProvider } from './groq';
+import { OpenRouterProvider } from './openrouter';
 import { offlineCaptionCues, offlineStoryboard } from './offline';
 import {
   BROLL_SCHEMA_HINT,
@@ -36,10 +37,17 @@ import { AiError as AiErrorType } from './types';
 export { offlineCaptionCues, offlineStoryboard } from './offline';
 
 /**
- * Order matters: free tiers first. OpenAI is supported but never required —
- * the product has to stay usable at zero cost.
+ * Order matters: the widest free allowances first. Groq and OpenRouter (free
+ * Qwen models) have day-scale limits, while Gemini's free tier is small and
+ * shared with audio transcription — so it sits behind them. OpenAI is supported
+ * but never required: the product has to stay usable at zero cost.
  */
-const providers: AiProvider[] = [new GeminiProvider(), new GroqProvider(), new OpenAiProvider()];
+const providers: AiProvider[] = [
+  new GroqProvider(),
+  new OpenRouterProvider(),
+  new GeminiProvider(),
+  new OpenAiProvider(),
+];
 
 export function availableProviders(): AiProviderName[] {
   return providers.filter((p) => p.isConfigured()).map((p) => p.name);
@@ -47,7 +55,7 @@ export function availableProviders(): AiProviderName[] {
 
 /**
  * Resolves the provider to use. `AI_PROVIDER` forces one; otherwise the first
- * configured free provider wins (Gemini, then Groq, then OpenAI). Returns null
+ * configured free provider wins (Groq, OpenRouter, Gemini, then OpenAI). Returns null
  * when nothing is configured — callers fall back to the offline draft generator.
  */
 export function activeProvider(): AiProvider | null {

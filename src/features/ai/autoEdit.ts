@@ -177,16 +177,35 @@ export function applyCutPlan(plan: CutPlan): boolean {
   return state.apply(cutsToCommands(plan.cuts), plan.label);
 }
 
-/** Transcribes the whole timeline and returns word-level cues. */
-export async function transcribeTimeline(onProgress?: (message: string) => void): Promise<CaptionCue[]> {
+/** Where transcription runs: on this device, or on a hosted provider. */
+export type TranscriptionMode = 'local' | 'hosted';
+
+/**
+ * Transcribes the whole timeline.
+ *
+ * `local` runs Whisper in this browser — no key, no quota, and the audio never
+ * leaves the machine. `hosted` posts the mixdown to whichever provider is
+ * configured, which is faster and gives word-level timings on Whisper backends.
+ */
+export async function transcribeTimeline(
+  onProgress?: (message: string) => void,
+  options: { mode?: TranscriptionMode; model?: 'tiny' | 'base' | 'small' } = {},
+): Promise<CaptionCue[]> {
   const state = useEditorStore.getState();
   if (!state.sequence) throw new Error('No project loaded.');
+
   const { renderTimelineAudio } = await import('@/features/captions/extractAudio');
   const audio = await renderTimelineAudio({
     sequence: state.sequence,
     assets: state.assets,
     onProgress,
   });
+
+  if (options.mode === 'local') {
+    const { transcribeLocally } = await import('@/features/captions/localWhisper');
+    return transcribeLocally(audio, { model: options.model, onProgress });
+  }
+
   onProgress?.('Transcribing…');
   const { cues } = await api.transcribe(audio);
   return cues;

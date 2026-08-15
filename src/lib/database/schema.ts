@@ -148,7 +148,7 @@ export const projectDocSchema = z.object({
       cta: z.string().max(1000),
       tone: z.string().max(120),
       scenes: z.array(storyboardSceneSchema).max(60),
-      provider: z.enum(['gemini', 'groq', 'openai', 'offline']),
+      provider: z.enum(['gemini', 'groq', 'openrouter', 'openai', 'offline']),
       createdAt: z.string().max(40),
     })
     .nullable()
