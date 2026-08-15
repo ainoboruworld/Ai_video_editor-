@@ -37,7 +37,7 @@ any of them at any time.
 | Context-aware filler detection, highlighted in place, accept or reject each one | Working, no key needed |
 | Pause trimming that leaves a beat behind, on a natural-to-aggressive slider | Working, no key needed |
 | Cut review before anything is applied, as one undoable edit | Working |
-| Cut smoothing: audio fades and a subtle reframe, not spins and flashes | Working |
+| Cut smoothing: a short cross-dissolve built from the footage each cut removed | Working |
 | Background music with automatic ducking under detected speech | Working, no key needed |
 | B-roll suggested from what the speaker said, added only when you add it | Working (needs a free Pexels or Pixabay key) |
 | Captions built from the final transcript, no second transcription request | Working |

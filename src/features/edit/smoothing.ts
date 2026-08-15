@@ -1,39 +1,49 @@
 'use client';
 
 /**
- * Making the cuts sound and look smooth.
+ * Making the cuts disappear.
  *
- * A jump cut in a talking head fails in two ways, and they need different
- * fixes. The audible failure is a click: the waveform is severed mid-cycle and
- * the ear hears the discontinuity. A few frames of fade on each side removes it
- * completely, and is inaudible in itself. The visible failure is the speaker's
- * head snapping to a new position, and the standard fix is not a transition at
- * all — it is a small change of framing across the cut, so the edit reads as a
- * second camera angle rather than a mistake.
+ * A jump cut in a talking head fails in two ways. The audible failure is a
+ * click: the waveform is severed mid-cycle and the ear hears the
+ * discontinuity. A few frames of fade removes it and is itself inaudible.
  *
- * That is why the default here is not a dissolve. Dissolving a talking head to
- * itself looks like a ghost, and this editor cannot do a true cross-dissolve at
- * a same-source seam anyway: both sides come from one file and the media pool
- * holds one element per asset.
+ * The visible failure is the speaker's head snapping to a new position, and the
+ * only thing that actually hides it is a short cross-dissolve. Nothing else
+ * comes close: a dip through black replaces one visible event with a different
+ * visible event, and a small change of framing — which an earlier version of
+ * this file used — is worse than either, because a few percent of scale is too
+ * little to read as a second camera angle and too much to go unnoticed. It is a
+ * visible pop introduced in the name of hiding one.
+ *
+ * The dissolve is built from the material the cut removed. Both halves of a
+ * recut seam come from one file, so a dissolve needs frames from either side of
+ * the join at the same moment — exactly what the filler word or pause that was
+ * deleted provides. The outgoing clip is extended forward into that removed
+ * material and the incoming clip fades up over it, so the blend happens across
+ * footage nobody wanted, no kept speech is lost, and nothing downstream moves.
+ * The extension is silenced with a volume envelope, so the removed "um" is seen
+ * for a fraction of a second under a fading picture and never heard.
  */
 import { seamTimes } from '@/features/ai/cutTransitions';
 import { applyCommand, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
-import type { Range } from '@/features/analysis/audioAnalysis';
+import { mergeRanges, type Range } from '@/features/analysis/audioAnalysis';
 
-export type SmoothingStyle = 'none' | 'audio' | 'subtle' | 'dip';
+export type SmoothingStyle = 'none' | 'audio' | 'dissolve';
 
 export const SMOOTHING_STYLES: { id: SmoothingStyle; label: string; description: string }[] = [
-  { id: 'subtle', label: 'Natural', description: 'Audio fade plus a slight reframe. Barely noticeable.' },
-  { id: 'audio', label: 'Audio only', description: 'Removes the click, leaves the picture alone.' },
-  { id: 'dip', label: 'Soft dip', description: 'A very short fade through black at each cut.' },
+  { id: 'dissolve', label: 'Invisible', description: 'Short cross-dissolve across each join. The default.' },
+  { id: 'audio', label: 'Audio only', description: 'Removes the click, leaves the picture cutting hard.' },
   { id: 'none', label: 'Leave as is', description: 'Hard cuts, nothing added.' },
 ];
 
+/** Long enough to hide a head jump, short enough not to read as an effect. */
+const DISSOLVE_SECONDS = 0.18;
 /** A few frames. Long enough to kill the click, short enough to be inaudible. */
 const AUDIO_FADE_SECONDS = 0.045;
-/** How much the framing shifts across a cut. Above ~6% it starts to read as an effect. */
-const PUNCH_SCALE = 1.035;
-const DIP_SECONDS = 0.12;
+/** Below this a dissolve is just a flicker; fall back to fading the audio only. */
+const MIN_DISSOLVE_SECONDS = 0.06;
+/** A dissolve never takes more than this share of either clip it joins. */
+const MAX_CLIP_SHARE = 0.4;
 /** A clip too short to carry a fade is left alone rather than fading end to end. */
 const MIN_CLIP_FOR_FADE = 0.25;
 
@@ -41,15 +51,17 @@ export interface SmoothingResult {
   commands: EditorCommand[];
   /** Joins that got audio treatment. */
   seams: number;
-  /** Clips that got a reframe. */
-  reframed: number;
+  /** Joins that got a real cross-dissolve. */
+  dissolved: number;
 }
 
 /**
  * Builds the smoothing commands for a set of cuts.
  *
  * `sequence` is the timeline before the cuts; the cut commands are replayed
- * against a copy so the smoothing lands on the clips that survive.
+ * against a copy so the smoothing lands on the clips that survive. The cut
+ * lengths matter: they are the handles the dissolve is made from, so a seam can
+ * only dissolve for as long as the material removed there.
  */
 export function smoothingCommands(input: {
   sequence: Sequence;
@@ -58,7 +70,7 @@ export function smoothingCommands(input: {
   style: SmoothingStyle;
   trackIds?: string[];
 }): SmoothingResult {
-  const empty: SmoothingResult = { commands: [], seams: 0, reframed: 0 };
+  const empty: SmoothingResult = { commands: [], seams: 0, dissolved: 0 };
   if (input.style === 'none') return empty;
 
   let cut: Sequence;
@@ -68,18 +80,43 @@ export function smoothingCommands(input: {
     return empty;
   }
 
-  return smoothSeams({ sequence: cut, seams: seamTimes(input.cuts), style: input.style, trackIds: input.trackIds });
+  const merged = mergeRanges(input.cuts).sort((a, b) => a.start - b.start);
+  const seams = seamTimes(input.cuts).map((time, index) => ({
+    time,
+    // How much footage was removed here, and so how long a dissolve can run.
+    handle: merged[index] ? merged[index]!.end - merged[index]!.start : 0,
+  }));
+
+  return smooth({ sequence: cut, seams, style: input.style, trackIds: input.trackIds });
 }
 
-/** Smooths joins that are already on the timeline, at the given times. */
+/**
+ * Smooths joins already on the timeline, where the size of the removed material
+ * is no longer known. The handle is assumed to be whatever the outgoing clip's
+ * source continues into.
+ */
 export function smoothSeams(input: {
   sequence: Sequence;
   seams: number[];
   style: SmoothingStyle;
   trackIds?: string[];
 }): SmoothingResult {
+  return smooth({
+    sequence: input.sequence,
+    seams: input.seams.map((time) => ({ time, handle: DISSOLVE_SECONDS })),
+    style: input.style,
+    trackIds: input.trackIds,
+  });
+}
+
+function smooth(input: {
+  sequence: Sequence;
+  seams: { time: number; handle: number }[];
+  style: SmoothingStyle;
+  trackIds?: string[];
+}): SmoothingResult {
   const { style } = input;
-  if (style === 'none') return { commands: [], seams: 0, reframed: 0 };
+  if (style === 'none') return { commands: [], seams: 0, dissolved: 0 };
 
   const tracks = input.trackIds
     ? input.sequence.tracks.filter((track) => input.trackIds?.includes(track.id))
@@ -87,55 +124,54 @@ export function smoothSeams(input: {
 
   const commands: EditorCommand[] = [];
   const fades = new Map<string, { fadeIn?: number; fadeOut?: number }>();
-  const reframed = new Set<string>();
-  let seams = 0;
+  let seamCount = 0;
+  let dissolved = 0;
 
   for (const track of tracks) {
     if (track.kind !== 'video' && track.kind !== 'audio') continue;
+    const visual = track.kind === 'video';
 
-    // Framing alternates along the track so consecutive cuts do not drift ever
-    // further in; the picture goes near, far, near.
-    let alternate = false;
-
-    for (const time of input.seams) {
-      const outgoing = track.clips.find((clip) => Math.abs(clip.start + clip.duration - time) < 0.02);
-      const incoming = track.clips.find((clip) => Math.abs(clip.start - time) < 0.02);
+    for (const seam of input.seams) {
+      const outgoing = track.clips.find((clip) => Math.abs(clip.start + clip.duration - seam.time) < 0.02);
+      const incoming = track.clips.find((clip) => Math.abs(clip.start - seam.time) < 0.02);
       if (!outgoing || !incoming || outgoing.id === incoming.id) continue;
-      seams += 1;
+      if (visual) seamCount += 1;
 
-      queueFade(fades, outgoing, 'fadeOut', AUDIO_FADE_SECONDS);
+      const span = dissolveSpan(seam.handle, outgoing, incoming);
+      const canDissolve = style === 'dissolve' && visual && span >= MIN_DISSOLVE_SECONDS;
+
+      if (!canDissolve) {
+        queueFade(fades, outgoing, 'fadeOut', AUDIO_FADE_SECONDS);
+        queueFade(fades, incoming, 'fadeIn', AUDIO_FADE_SECONDS);
+        continue;
+      }
+
+      dissolved += 1;
+      const extended = outgoing.duration + span;
+
+      // Carry the outgoing picture on into the removed material…
+      commands.push({ type: 'TRIM_CLIP', clipId: outgoing.id, start: outgoing.start, duration: extended });
+      // …but not its sound: the envelope closes at the original cut point, so
+      // the deleted filler is briefly seen and never heard.
+      commands.push({
+        type: 'SET_KEYFRAMES',
+        clipId: outgoing.id,
+        prop: 'volume',
+        keyframes: [
+          { time: 0, value: outgoing.volume },
+          { time: Math.max(0, extended - span - AUDIO_FADE_SECONDS), value: outgoing.volume },
+          { time: Math.max(0.01, extended - span), value: 0 },
+          { time: extended, value: 0 },
+        ],
+      });
+      // …while the incoming picture fades up over it.
+      commands.push({
+        type: 'ADD_TRANSITION',
+        clipId: incoming.id,
+        position: 'in',
+        transition: { kind: 'cross-dissolve', duration: span, position: 'in' },
+      });
       queueFade(fades, incoming, 'fadeIn', AUDIO_FADE_SECONDS);
-
-      if (style === 'subtle' && track.kind === 'video') {
-        alternate = !alternate;
-        // Only the incoming side moves: the outgoing shot keeps whatever framing
-        // it already had, so the change happens exactly on the cut.
-        if (!reframed.has(incoming.id)) {
-          reframed.add(incoming.id);
-          commands.push({
-            type: 'CHANGE_TRANSFORM',
-            clipId: incoming.id,
-            transform: { scale: incoming.transform.scale * (alternate ? PUNCH_SCALE : 1) },
-          });
-        }
-      }
-
-      if (style === 'dip' && track.kind === 'video') {
-        const outSeconds = Math.min(DIP_SECONDS / 2, outgoing.duration * 0.4);
-        const inSeconds = Math.min(DIP_SECONDS / 2, incoming.duration * 0.4);
-        commands.push({
-          type: 'ADD_TRANSITION',
-          clipId: outgoing.id,
-          position: 'out',
-          transition: { kind: 'dip-to-black', duration: outSeconds, position: 'out' },
-        });
-        commands.push({
-          type: 'ADD_TRANSITION',
-          clipId: incoming.id,
-          position: 'in',
-          transition: { kind: 'dip-to-black', duration: inSeconds, position: 'in' },
-        });
-      }
     }
   }
 
@@ -144,11 +180,23 @@ export function smoothSeams(input: {
     commands.push({ type: 'SET_FADE', clipId, ...fade });
   }
 
-  return { commands, seams: Math.round(seams / Math.max(1, countedTracks(tracks))), reframed: reframed.size };
+  return { commands, seams: seamCount, dissolved };
 }
 
-function countedTracks(tracks: { kind: string }[]): number {
-  return Math.max(1, tracks.filter((track) => track.kind === 'video').length);
+/**
+ * How long the dissolve can run here.
+ *
+ * Bounded by the material the cut removed — dissolving for longer than that
+ * would reach into speech that was kept — and by both clips, so a short one is
+ * never mostly transition.
+ */
+function dissolveSpan(handle: number, outgoing: Clip, incoming: Clip): number {
+  return Math.min(
+    DISSOLVE_SECONDS,
+    handle * 0.9,
+    outgoing.duration * MAX_CLIP_SHARE,
+    incoming.duration * MAX_CLIP_SHARE,
+  );
 }
 
 function queueFade(

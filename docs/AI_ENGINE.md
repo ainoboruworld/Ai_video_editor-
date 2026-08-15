@@ -143,18 +143,47 @@ of the *middle* so both phrases keep air around them, and always leaves a beat.
 The slider runs from "cuts pauses over 2.0s, leaving 0.45s" to "over 0.28s,
 leaving 0.08s", and defaults near the conservative end.
 
-### Smoothing is audio first
+### Making the cut invisible
 
-A jump cut fails in two ways and they need different fixes. The audible failure
-is a click, from severing the waveform mid-cycle; a few frames of fade on each
-side removes it and is itself inaudible. The visible failure is the speaker's
-head snapping position, and the standard fix is not a transition — it is a small
-change of framing across the cut, so the edit reads as a second camera angle.
+Three separate things make an edit noticeable, and only the third is a
+transition at all.
 
-So the default (`features/edit/smoothing.ts`) is a 45 ms audio fade on both sides
-of every join plus an alternating ~3.5% reframe on the picture. No spins, no
-flashes, no big zooms. "Soft dip" and "audio only" are there for the cases that
-want them.
+**The picture used to go black at every cut.** A ripple delete makes the video
+element jump to a different part of the file, and a `<video>` asked for a new
+position mid-playback has no frame to give until it has decoded. Measured on a
+real recording, the canvas was empty for ~280 ms at every join — far more
+visible than any transition choice, and the actual cause of the "clips are
+jumping" complaint. The playback engine now keeps the last decoded frame per
+element and hands that to the compositor while the element seeks, and points an
+upcoming clip's element at its first frame ~0.7 s before it is needed. Holding a
+frame for two or three ticks is invisible; dropping to black is the most visible
+thing in the whole edit.
+
+**The click.** Severing the waveform mid-cycle is audible. 45 ms of fade on each
+side removes it and is itself inaudible.
+
+**The head jump.** The speaker is in a different position across the cut, and
+the only thing that hides it is a short cross-dissolve. An earlier version of
+this file used a small change of framing instead, on the theory that it would
+read as a second camera angle; a few percent of scale is too little to read as
+an angle and too much to go unnoticed, so it added a visible pop in the name of
+hiding one. It is gone.
+
+The dissolve is built from the footage the cut removed. Both halves of a recut
+seam come from one file, so a dissolve needs frames from either side of the join
+at the same instant — which is exactly what the deleted filler word or pause
+provides. The outgoing clip is extended forward into that removed material and
+the incoming clip fades up over it, so the blend happens across footage nobody
+wanted, no kept speech is lost, and nothing downstream moves. A volume envelope
+closes the extension at the original cut point, so the removed "um" is briefly
+seen under a fading picture and never heard.
+
+That needs two frames of one file on screen at once, which the media pool could
+not do — it held one element per asset and the two clips fought over
+`currentTime`. Elements are now keyed by asset *and slot*, with clips of the
+same asset alternating between two slots in track order, so any two neighbours
+always hold different elements. A second element is only created when a clip
+actually needs one.
 
 ### Music ducks under speech
 

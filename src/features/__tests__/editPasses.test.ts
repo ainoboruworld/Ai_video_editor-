@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_AGGRESSION, pauseCuts, pauseProfile } from '@/features/edit/pauses';
 import { duckingKeyframes, DUCKING_DEFAULTS } from '@/features/edit/ducking';
-import { smoothSeams } from '@/features/edit/smoothing';
+import { smoothingCommands, smoothSeams } from '@/features/edit/smoothing';
 import { workflowState } from '@/features/edit/workflow';
 import { applyCommand, makeClip, makeSequence, trackByRole, type Sequence } from '@/lib/engine';
 
@@ -106,7 +106,9 @@ function cutTimeline(): Sequence {
   };
 }
 
-describe('smoothSeams', () => {
+describe('smoothing', () => {
+  const cuts = [{ start: 4, end: 4.5 }];
+
   it('fades the audio on both sides of every join', () => {
     const sequence = cutTimeline();
     const result = smoothSeams({ sequence, seams: [4, 8], style: 'audio' });
@@ -122,33 +124,74 @@ describe('smoothSeams', () => {
     expect(clips[2]!.fadeOut).toBe(0);
   });
 
-  it('adds no transition or reframe in audio-only mode', () => {
+  it('touches only the audio in audio-only mode', () => {
     const result = smoothSeams({ sequence: cutTimeline(), seams: [4], style: 'audio' });
     expect(result.commands.every((command) => command.type === 'SET_FADE')).toBe(true);
-    expect(result.reframed).toBe(0);
+    expect(result.dissolved).toBe(0);
   });
 
-  it('reframes rather than dissolving on the natural setting', () => {
+  it('overlaps the two halves so they can dissolve into each other', () => {
     const sequence = cutTimeline();
-    const result = smoothSeams({ sequence, seams: [4, 8], style: 'subtle' });
+    const result = smoothSeams({ sequence, seams: [4], style: 'dissolve' });
     const after = result.commands.reduce(applyCommand, sequence);
     const clips = after.tracks.find((t) => t.kind === 'video')!.clips;
 
-    expect(result.commands.some((command) => command.type === 'ADD_TRANSITION')).toBe(false);
-    expect(clips.some((clip) => clip.transform.scale !== 1)).toBe(true);
-    // The framing goes near/far/near rather than creeping in at every cut.
-    expect(clips[1]!.transform.scale).not.toBe(clips[2]!.transform.scale);
+    expect(result.dissolved).toBe(1);
+    // The outgoing clip now runs past where the incoming one starts.
+    expect(clips[0]!.start + clips[0]!.duration).toBeGreaterThan(clips[1]!.start);
+    expect(clips[1]!.transitionIn?.kind).toBe('cross-dissolve');
+    // Only the incoming side ramps: two ramps would dip through the background
+    // instead of blending one picture into the other.
+    expect(clips[0]!.transitionOut).toBeNull();
   });
 
-  it('uses a very short dip when asked for one', () => {
-    const result = smoothSeams({ sequence: cutTimeline(), seams: [4], style: 'dip' });
-    const transitions = result.commands.filter((command) => command.type === 'ADD_TRANSITION');
-    expect(transitions).toHaveLength(2);
-    for (const command of transitions) {
-      if (command.type !== 'ADD_TRANSITION') throw new Error('expected ADD_TRANSITION');
-      expect(command.transition!.kind).toBe('dip-to-black');
-      expect(command.transition!.duration).toBeLessThanOrEqual(0.06);
+  it('does not push anything downstream when it extends a clip', () => {
+    const sequence = cutTimeline();
+    const before = sequence.tracks.find((t) => t.kind === 'video')!.clips.map((c) => c.start);
+    const result = smoothSeams({ sequence, seams: [4, 8], style: 'dissolve' });
+    const after = result.commands.reduce(applyCommand, sequence);
+    expect(after.tracks.find((t) => t.kind === 'video')!.clips.map((c) => c.start)).toEqual(before);
+  });
+
+  it('silences the extension, so the removed filler is never heard', () => {
+    const sequence = cutTimeline();
+    const result = smoothSeams({ sequence, seams: [4], style: 'dissolve' });
+    const after = result.commands.reduce(applyCommand, sequence);
+    const outgoing = after.tracks.find((t) => t.kind === 'video')!.clips[0]!;
+    const envelope = outgoing.keyframes.volume!;
+
+    expect(envelope.length).toBeGreaterThan(2);
+    expect(envelope[envelope.length - 1]!.value).toBe(0);
+    // Silent from the original cut point onwards, not from the new end.
+    const closesAt = envelope.find((point) => point.value === 0)!.time;
+    expect(closesAt).toBeLessThanOrEqual(4.001);
+  });
+
+  it('never dissolves for longer than the cut removed', () => {
+    // Only 0.5s was taken out here, so that is all the handle there is.
+    const sequence = cutTimeline();
+    const result = smoothingCommands({
+      sequence,
+      cutCommands: [],
+      cuts: [{ start: 4, end: 4.12 }],
+      style: 'dissolve',
+    });
+    const transition = result.commands.find((c) => c.type === 'ADD_TRANSITION');
+    if (transition && transition.type === 'ADD_TRANSITION') {
+      expect(transition.transition!.duration).toBeLessThanOrEqual(0.12);
     }
+  });
+
+  it('falls back to fading the audio when there is no handle to dissolve over', () => {
+    const sequence = cutTimeline();
+    const result = smoothingCommands({
+      sequence,
+      cutCommands: [],
+      cuts: [{ start: 4, end: 4.01 }],
+      style: 'dissolve',
+    });
+    expect(result.dissolved).toBe(0);
+    expect(result.commands.every((command) => command.type === 'SET_FADE')).toBe(true);
   });
 
   it('does nothing when smoothing is off', () => {
@@ -177,6 +220,8 @@ describe('smoothSeams', () => {
     const clips = after.tracks.find((t) => t.kind === 'video')!.clips;
     expect(clips[1]!.fadeIn).toBe(0);
   });
+
+  void cuts;
 });
 
 describe('workflowState', () => {
