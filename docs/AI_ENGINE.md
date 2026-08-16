@@ -13,6 +13,8 @@ your recording
                           └─► /api/ai/broll → what was said → queries
                                 → Pexels / Pixabay / Unsplash → ranked, never
                                   auto-inserted
+              └─► /api/news → claims made → GDELT → headline + publisher +
+                    date → citation graphic, never a publisher image
 ```
 
 The one optional model-driven edit is **AI Recut** (`/api/ai/edit`), which reads
@@ -104,6 +106,34 @@ they stay sharp at any export size and remain editable as text in the Inspector.
 They live on the text track and refuse to stack — two at the same moment would
 draw over each other and only one could be selected.
 
+## News as a resource
+
+Stock footage answers "what should the viewer look at while I say this". A news
+article answers a different question — "who says so" — so it arrives as a
+citation rather than as pictures.
+
+`features/edit/news.ts` reads the transcript for sentences that make a
+*checkable* claim: a percentage, a year, a money figure, a study, an
+acquisition, an analyst forecast. Opinion and narration are skipped, because a
+source under every sentence is the same clutter as B-roll over every sentence.
+Each claim becomes a short query — proper nouns first, since they are what
+identifies a claim, content words otherwise — and `/api/news` runs it against
+GDELT's Document API, which is free, needs no key and no account.
+
+Only metadata comes back: headline, publisher, date, link. **The article's image
+is deliberately not used.** Publisher photography is copyrighted and a
+stock-media pipeline is the wrong place to launder it, so an approved article
+becomes a `citation` graphic the compositor draws — accent rule, publisher and
+date as the label, the headline as the value, the domain underneath. Imagery
+still comes from Pexels, Pixabay and Unsplash, which license it for this.
+
+Headlines are stripped of the publisher suffix newsrooms staple on ("… |
+The Guardian"), matched by squashing punctuation so `theguardian.com` lines up
+with "The Guardian", and results are capped at two per outlet — six articles
+from one paper is a worse resource than six papers. Nothing is placed until the
+user clicks **Cite at 0:00**, and a citation is a normal clip afterwards: retime
+it, restyle it, delete it.
+
 ## The edit itself
 
 The workflow lives in `features/edit`, `features/analysis` and
@@ -127,12 +157,32 @@ can come from any of three places. They normalise to the same
 | Source | Needs | Notes |
 | --- | --- | --- |
 | **Manual** | nothing | Paste a transcript. Accepts `00:00 - 00:04` ranges, SRT/VTT, one timestamp per line, or plain prose. Untimed pastes are spread by sentence length and flagged as estimated rather than given invented precision. |
-| **Local Whisper** | nothing | Runs in the browser; the model downloads once. |
-| **Hosted** | a free `GROQ_API_KEY` | Fastest, and the only source with word-level timings for karaoke captions. |
+| **Local Whisper** | nothing | Runs in the browser; the model downloads once. Cannot be asked for verbatim text — see below. |
+| **Hosted** | a free `GROQ_API_KEY` | Fastest, the only source with word-level timings for karaoke captions, and the only one asked for a verbatim transcript. |
 
 Manual mode exists so that neither a model download nor an API quota can block
 editing: a transcript obtained anywhere — including pasting the video into a
 chat assistant — makes the whole downstream workflow available immediately.
+
+#### A tidy transcript has no fillers to cut
+
+Whisper is trained to produce a *readable* transcript, which means it quietly
+drops the disfluencies this editor exists to remove. A transcript that has
+already tidied them away leaves filler detection with nothing to find — which
+looks exactly like the feature being broken.
+
+The API fixes this: `prompt` conditions the model as though it were the text
+immediately preceding the audio, so a prompt written in the style we want back —
+every hesitation spelled out — pulls the transcription toward verbatim. It is
+sent with `temperature: 0`, because the fallback temperatures Whisper uses on a
+low-confidence pass are where it is most likely to paraphrase a hesitation away.
+
+The in-browser model has no equivalent. `@huggingface/transformers` does not
+implement Whisper's `prompt_ids`, so the local path cannot be conditioned and
+its transcripts stay tidy. Rather than pretend otherwise, the Transcript panel
+says so at the point of choosing, and the fillers step explains an empty result
+in terms of the source that produced the transcript — local, hosted or pasted —
+so "none found" points at a fix instead of a dead end.
 
 Gemini is deliberately **not** a transcription provider: its audio is billed as
 tokens from the same small allowance the recut calls use, so

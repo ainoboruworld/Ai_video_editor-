@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { BarChart3, List, Quote, Type } from 'lucide-react';
+import { BarChart3, List, Newspaper, Quote, Type } from 'lucide-react';
 import { addGraphicClip, addTextClip } from '@/features/timeline/operations';
 import { GRAPHIC_ACCENTS, emptyGraphic, suggestGraphics } from '@/features/edit/graphics';
 import { Button, PanelHeader } from '@/components/ui';
@@ -28,6 +28,7 @@ const GRAPHIC_KINDS: { kind: Graphic['kind']; label: string; icon: React.ReactNo
   { kind: 'stat', label: 'Stat', icon: <BarChart3 size={13} />, blurb: 'A number with a label' },
   { kind: 'list', label: 'List', icon: <List size={13} />, blurb: 'Bulleted points' },
   { kind: 'quote', label: 'Quote', icon: <Quote size={13} />, blurb: 'A line worth remembering' },
+  { kind: 'citation', label: 'Citation', icon: <Newspaper size={13} />, blurb: 'Headline, source, date' },
 ];
 
 /** Text presets, animated templates and infographics — all on the text track. */
@@ -122,7 +123,7 @@ export function TextPanel() {
           ))}
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
           {GRAPHIC_KINDS.map((entry) => (
             <button
               key={entry.kind}

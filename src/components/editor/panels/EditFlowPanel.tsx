@@ -19,6 +19,7 @@ import {
   FileText,
   Film,
   Music,
+  Newspaper,
   Scissors,
   Search,
 
@@ -27,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useEditorStore } from '@/state/editorStore';
 import { uploadFile, ACCEPTED_MIME } from '@/features/media/upload';
-import { addAssetToTimeline } from '@/features/timeline/operations';
+import { addAssetToTimeline, addGraphicClip } from '@/features/timeline/operations';
 import {
   analysePrimaryClip,
   applyCaptions,
@@ -46,14 +47,16 @@ import {
 import { DEFAULT_AGGRESSION, describeAggression, pauseCuts, type PauseCut } from '@/features/edit/pauses';
 import { SMOOTHING_STYLES, smoothingCommands, smoothSeams, type SmoothingStyle } from '@/features/edit/smoothing';
 import { DUCKING_DEFAULTS, duckingKeyframes } from '@/features/edit/ducking';
+import { citationDate, citationGraphic, newsCuesFromTranscript, type NewsCue } from '@/features/edit/news';
 import { STEPS, suggestedStep, workflowState, type StepId } from '@/features/edit/workflow';
-import { segmentsToCues, type TranscriptSegment } from '@/features/transcript/model';
+import { segmentsToCues, type TranscriptSegment, type TranscriptSource } from '@/features/transcript/model';
 import { mergeRanges, type AudioAnalysis, type Range } from '@/features/analysis/audioAnalysis';
 import { api } from '@/lib/api-client';
 import { sequenceDuration, trackByRole } from '@/lib/engine';
 import { Badge, Button, EmptyState, PanelHeader, ProgressBar } from '@/components/ui';
 import { clock } from '@/lib/format';
 import { toast } from '@/state/toastStore';
+import type { NewsArticle } from '@/types';
 import { cn } from '@/lib/cn';
 
 export function EditFlowPanel() {
@@ -82,6 +85,7 @@ export function EditFlowPanel() {
   const [appliedCuts, setAppliedCuts] = useState(0);
   const [pausesTrimmed, setPausesTrimmed] = useState(false);
   const [suggestions, setSuggestions] = useState<BrollSuggestion[] | null>(null);
+  const [articles, setArticles] = useState<{ cue: NewsCue; found: NewsArticle[] }[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const segments: TranscriptSegment[] = useMemo(() => transcript?.segments ?? [], [transcript]);
@@ -354,6 +358,44 @@ export function EditFlowPanel() {
     }
   }, [segments, aspect]);
 
+  /**
+   * News articles for the claims in the transcript.
+   *
+   * Only metadata comes back — headline, publisher, date — and an approved
+   * article lands as a citation the compositor draws. Publisher photography is
+   * theirs; footage keeps coming from the licensed stock providers.
+   */
+  const findNews = useCallback(async () => {
+    if (segments.length === 0) {
+      toast.info('Need a transcript first', 'Citations are matched to the claims you actually make.');
+      return;
+    }
+    setBusy('news');
+    try {
+      const cues = newsCuesFromTranscript(segments);
+      if (cues.length === 0) {
+        setArticles([]);
+        toast.info('No claims to cite', 'Nothing here names a figure, a year or a study, so a source would be decoration.');
+        return;
+      }
+      const { recommendations } = await api.findNews({
+        cues: cues.map((cue, index) => ({ id: String(index), query: cue.query })),
+      });
+
+      const found = recommendations.flatMap((entry) => {
+        const cue = cues[Number(entry.cueId)];
+        if (!cue || entry.articles.length === 0) return [];
+        return [{ cue, found: entry.articles }];
+      });
+      setArticles(found);
+      if (found.length === 0) toast.info('No coverage found', 'The news index had nothing for these claims.');
+    } catch (error) {
+      toast.error('News search failed', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(null);
+    }
+  }, [segments]);
+
   const makeCaptions = useCallback(() => {
     if (segments.length === 0) {
       toast.info('Need a transcript first', 'Captions are built from it.');
@@ -451,6 +493,7 @@ export function EditFlowPanel() {
     fillers: (
       <FillerReview
         segments={segments}
+        source={transcript?.source ?? null}
         candidates={candidates}
         accepted={accepted}
         onToggle={toggleCandidate}
@@ -648,6 +691,79 @@ export function EditFlowPanel() {
         <Button size="sm" className="mt-1.5 w-full justify-start" icon={<Search size={12} />} onClick={() => setPanel('broll')}>
           Search stock footage yourself
         </Button>
+
+        {/* ---- news articles ---- */}
+        <p className="mt-4 border-t border-line pt-3 text-2xs leading-relaxed text-ink-2">
+          When you make a claim, the source is worth showing. These are matched to what you said and land as a citation
+          drawn on the frame — headline, publisher and date only, never the publisher&rsquo;s own photography.
+        </p>
+        <Button
+          size="sm"
+          className="mt-2 w-full justify-start"
+          icon={<Newspaper size={12} />}
+          loading={busy === 'news'}
+          onClick={() => void findNews()}
+        >
+          Find news to cite
+        </Button>
+        {articles?.length ? (
+          <div className="mt-2 space-y-2">
+            {articles.map((entry, index) => (
+              <div key={index} className="rounded-md border border-line bg-bg-2 p-1.5">
+                <button
+                  type="button"
+                  onClick={() => seek(entry.cue.start)}
+                  className="block w-full text-left text-2xs font-medium text-ink-0 hover:text-accent"
+                >
+                  {clock(entry.cue.start)} — {entry.cue.query}
+                </button>
+                <p className="mt-0.5 truncate text-2xs text-ink-3">&ldquo;{entry.cue.sentence}&rdquo;</p>
+                <div className="mt-1 space-y-1">
+                  {entry.found.map((article) => (
+                    <div key={article.id} className="rounded border border-line/70 bg-bg-1 p-1.5">
+                      <p className="text-2xs font-medium leading-snug text-ink-0">{article.title}</p>
+                      <p className="mt-0.5 text-2xs text-ink-3">
+                        {article.source}
+                        {article.publishedAt ? ` · ${citationDate(article.publishedAt)}` : ''}
+                      </p>
+                      <div className="mt-1 flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          className="flex-1 justify-center"
+                          onClick={() => {
+                            const added = addGraphicClip(citationGraphic(article), {
+                              start: entry.cue.start,
+                              duration: entry.cue.duration,
+                            });
+                            if (added) {
+                              toast.success('Citation added', `At ${clock(entry.cue.start)} — edit it in the Inspector.`);
+                            }
+                          }}
+                        >
+                          Cite at {clock(entry.cue.start)}
+                        </Button>
+                        <a
+                          href={article.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded border border-line px-1.5 py-1 text-2xs text-ink-2 hover:border-accent/40 hover:text-ink-0"
+                        >
+                          Read
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : articles ? (
+          <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+            Nothing came back. Citations are only offered for sentences that make a checkable claim — a figure, a year,
+            a study, a company.
+          </p>
+        ) : null}
       </>
     ),
 
@@ -785,6 +901,7 @@ function AnalysisSummary({
 
 function FillerReview({
   segments,
+  source,
   candidates,
   accepted,
   onToggle,
@@ -793,6 +910,7 @@ function FillerReview({
   onRejectAll,
 }: {
   segments: TranscriptSegment[];
+  source: TranscriptSource | null;
   candidates: FillerCandidate[];
   accepted: Set<string>;
   onToggle: (candidate: FillerCandidate) => void;
@@ -809,7 +927,34 @@ function FillerReview({
   }
 
   if (candidates.length === 0) {
-    return <p className="text-2xs text-ink-2">No filler words found in this transcript.</p>;
+    // "None found" is nearly always the transcript's fault rather than the
+    // speaker's: Whisper is trained to write readable prose, which means it
+    // deletes the hesitations before we ever see them. Saying which source
+    // produced this transcript is the difference between a dead end and a fix.
+    return (
+      <>
+        <p className="text-2xs leading-relaxed text-ink-2">No filler words found in this transcript.</p>
+        {source === 'local' ? (
+          <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+            Whisper writes a tidied transcript by default, and the in-browser build cannot be told to keep the
+            hesitations — so a local transcript often has none to find even when the recording is full of them. The
+            hosted transcript is asked for a verbatim one. Switch source in the Transcript panel, or paste a transcript
+            that keeps the &ldquo;um&rdquo;s.
+          </p>
+        ) : source === 'hosted' ? (
+          <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+            The hosted transcript is asked for verbatim text, so this usually means the recording really is clean. If
+            you can hear hesitations that are not written down, type them into the transcript at the right point and
+            they will be detected.
+          </p>
+        ) : source === 'manual' ? (
+          <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+            Pasted transcripts are usually already cleaned up. Add the &ldquo;um&rdquo;s and &ldquo;uh&rdquo;s where you
+            hear them and they become cuts — or skip this step and trim the pauses instead.
+          </p>
+        ) : null}
+      </>
+    );
   }
 
   const estimated = candidates.filter((candidate) => candidate.estimatedTiming).length;

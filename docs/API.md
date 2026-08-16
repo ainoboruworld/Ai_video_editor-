@@ -58,12 +58,20 @@ upload keys are namespaced per owner and project.
 ```
 POST /api/ai/broll     { aspect, scenes[], perScene?, type?, topic? }          → { recommendations, providers, missingKeys }
 POST /api/ai/edit      { durationSeconds, targetSeconds?, goal?, cues[] }       → { plan, provider }   503 without a provider
+POST /api/news         { cues[], perCue?, sinceDays? }                          → { recommendations }
 ```
 
 Every response names the `provider` that produced it, so the client always knows
 what it is looking at. `/api/ai/broll` takes a spoken sentence as each scene's
 `visual` and turns it into search queries; with no provider configured it derives
 them locally instead of failing.
+
+`/api/news` searches GDELT — free, no key, no account — for articles that could be
+cited over a claim the speaker made. It returns metadata only: headline, publisher,
+date and link. No image URL is returned, because publisher photography is not
+licensed for reuse; the client turns an approved article into a citation the
+compositor draws. An unreachable index degrades to an empty list rather than an
+error, so the step never blocks the edit.
 
 `/api/ai/edit` plans cuts for footage the user already has: the model receives
 only the transcript, and every timestamp it returns is clamped to the real

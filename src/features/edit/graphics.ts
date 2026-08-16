@@ -104,11 +104,18 @@ export function suggestGraphics(segments: TranscriptSegment[]): GraphicSuggestio
 
 /** A blank graphic for the "add one myself" path. */
 export function emptyGraphic(kind: Graphic['kind'] = 'stat'): Graphic {
+  const placeholder: Record<Graphic['kind'], { title: string; value: string; caption: string }> = {
+    stat: { title: 'Label', value: '10x', caption: '' },
+    list: { title: 'Three things', value: '', caption: '' },
+    quote: { title: 'Label', value: 'Say the thing worth remembering', caption: '' },
+    // A citation is only useful filled in, so the blank one shows its shape:
+    // who said it, what they said, where to find it.
+    citation: { title: 'Publisher · date', value: 'The headline being cited', caption: 'example.com' },
+  };
+  const fields = placeholder[kind];
   return {
     kind,
-    title: kind === 'list' ? 'Three things' : 'Label',
-    value: kind === 'stat' ? '10x' : kind === 'quote' ? 'Say the thing worth remembering' : '',
-    caption: '',
+    ...fields,
     items: kind === 'list' ? ['First point', 'Second point', 'Third point'] : [],
     accent: GRAPHIC_ACCENTS[0]!.value,
     position: 'left',

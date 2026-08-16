@@ -80,7 +80,7 @@ const clipSchema = z
       .nullish(),
     graphic: z
       .object({
-        kind: z.enum(['stat', 'list', 'quote']),
+        kind: z.enum(['stat', 'list', 'quote', 'citation']),
         title: z.string().max(120),
         value: z.string().max(240),
         caption: z.string().max(240),

@@ -7,6 +7,7 @@ import type {
   Asset,
   CaptionCue,
   MediaSearchResponse,
+  NewsArticle,
   Project,
   ProjectSummary,
   RenderJob,
@@ -140,6 +141,11 @@ export const api = {
       providers: string[];
       missingKeys: string[];
     }>('/api/ai/broll', post(input)),
+
+  findNews: (input: { cues: { id: string; query: string }[]; perCue?: number; sinceDays?: number }) =>
+    request<{
+      recommendations: { cueId: string; query: string; articles: NewsArticle[] }[];
+    }>('/api/news', post(input)),
 
   planEdit: (input: {
     durationSeconds: number;

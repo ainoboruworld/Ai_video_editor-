@@ -39,7 +39,27 @@ export interface FillerCandidate {
  * Sounds, not words. These are hesitation noises in every context, so they are
  * flagged wherever they appear.
  */
-const HESITATIONS = ['um', 'umm', 'ummm', 'uh', 'uhh', 'uhhh', 'er', 'err', 'erm', 'ah', 'ahh', 'mm', 'mmm', 'hmm'];
+const HESITATIONS = [
+  'um', 'umm', 'ummm', 'uhm', 'uhmm',
+  'uh', 'uhh', 'uhhh',
+  'er', 'err', 'erm', 'ehm', 'emm',
+  'ah', 'ahh',
+  'mm', 'mmm', 'hm', 'hmm',
+];
+
+/**
+ * Deliberately *not* hesitations: "uh-huh" and "mm-hmm" mean yes, "huh" and
+ * "eh" ask a question. Transcribers spell them out of the same sounds as the
+ * list above, but they carry meaning and cutting them changes what was said.
+ *
+ * They are masked out of the search text before anything is matched, because
+ * the halves match on their own otherwise — "uh-huh" contains "uh".
+ */
+const BACKCHANNELS = /\b(?:uh[-\s]?huh|mm[-\s]?hmm|hm[-\s]?hmm|huh|eh)\b/gi;
+
+function maskBackchannels(stripped: string): string {
+  return stripped.replace(BACKCHANNELS, (match) => ' '.repeat(match.length));
+}
 
 /**
  * Real words that are only fillers in some positions. Each carries the test
@@ -132,11 +152,13 @@ export function detectFillerCandidates(options: DetectFillerOptions): FillerCand
 
   for (const segment of options.segments) {
     const text = segment.text;
-    const stripped = text.replace(/[^a-z0-9\s']/gi, ' ').toLowerCase();
+    const stripped = maskBackchannels(text.replace(/[^a-z0-9\s']/gi, ' ').toLowerCase());
 
-    for (const match of matchesIn(text, stripped)) {
+    for (const match of [...matchesIn(text, stripped), ...stumblesIn(text, stripped)].sort(
+      (a, b) => a.charStart - b.charStart,
+    )) {
       const context = contextAt(text, match.charStart, match.charEnd);
-      const verdict = classify(match.phrase, context);
+      const verdict = match.phrase === STUMBLE ? { confidence: 'medium' as const, reason: 'Repeated word' } : classify(match.phrase, context);
       if (!verdict) continue;
 
       const timing = spanFor(segment, match.charStart, match.charEnd, options);
@@ -166,6 +188,37 @@ export function detectFillerCandidates(options: DetectFillerOptions): FillerCand
   }
 
   return out.sort((a, b) => a.start - b.start);
+}
+
+
+/** Marks a match as a stutter rather than a word from the filler list. */
+const STUMBLE = '\u0000stumble';
+
+/**
+ * Immediate word repetitions — "the the", "I I want", "we we should".
+ *
+ * A stutter is not on any word list; it is a word said twice, and it is one of
+ * the commonest things that makes a take sound unrehearsed. Only the *first*
+ * copy is offered for removal, so what the speaker went on to say survives
+ * intact. One-letter words are skipped ("a a" is far more often a mishearing
+ * than a stumble) and so is deliberate emphasis across a comma ("no, no").
+ */
+function stumblesIn(text: string, stripped: string): { phrase: string; charStart: number; charEnd: number }[] {
+  const found: { phrase: string; charStart: number; charEnd: number }[] = [];
+  const pattern = /\b([a-z']{2,})(\s+)\1\b/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(stripped)) !== null) {
+    const first = match[1]!;
+    const gap = match[2]!;
+    const between = text.slice(match.index + first.length, match.index + first.length + gap.length);
+    // "no, no" and "very, very" are emphasis; punctuation between the two is
+    // the speaker meaning it twice.
+    if (/[,;:.!?—-]/.test(between)) continue;
+    found.push({ phrase: STUMBLE, charStart: match.index, charEnd: match.index + first.length + gap.length });
+  }
+
+  return found;
 }
 
 /** Finds every filler phrase in a segment, longest phrases first. */

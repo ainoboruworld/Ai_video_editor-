@@ -64,6 +64,26 @@ interface WhisperSegment {
   end: number;
 }
 
+/**
+ * The prompt Whisper is conditioned on before it hears the audio.
+ *
+ * Whisper is trained to produce a *readable* transcript, which means it quietly
+ * drops the disfluencies — the "um"s, the "uh"s, the false starts — that this
+ * editor exists to cut. A transcript that has already tidied them away leaves
+ * filler detection with nothing to find, which is exactly the failure it looks
+ * like when the feature "does not work".
+ *
+ * The API conditions the model on `prompt` as though it were the text
+ * immediately preceding the audio, so a prompt written *in* the style we want
+ * back — every hesitation spelled out — pulls the transcription toward verbatim
+ * rather than tidy. It is the documented way to control transcription style,
+ * and it is the difference between finding fourteen fillers and finding none.
+ */
+const VERBATIM_PROMPT =
+  'Um, so, uh, this is a verbatim transcript. Er, it keeps every filler word — um, uh, ah, er, ' +
+  'hmm, like, you know, I mean, sort of, kind of — and every false start, exactly as spoken. ' +
+  'Um, nothing is cleaned up, right?';
+
 /** Shared implementation for the OpenAI-compatible `/audio/transcriptions` API. */
 abstract class WhisperCompatibleTranscription implements TranscriptionProvider {
   abstract readonly name: string;
@@ -85,6 +105,10 @@ abstract class WhisperCompatibleTranscription implements TranscriptionProvider {
     form.append('response_format', 'verbose_json');
     form.append('timestamp_granularities[]', 'word');
     form.append('timestamp_granularities[]', 'segment');
+    form.append('prompt', VERBATIM_PROMPT);
+    // Greedy decoding. The fallback temperatures Whisper uses on a low-confidence
+    // pass are where it is most likely to paraphrase a hesitation away.
+    form.append('temperature', '0');
     if (language) form.append('language', language);
 
     const res = await fetch(`${this.baseUrl}/audio/transcriptions`, {

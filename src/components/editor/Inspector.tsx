@@ -377,8 +377,8 @@ export function Inspector() {
         ) : null}
 
         {clip.kind === 'graphic' && clip.graphic ? (
-          <Section title="Infographic" icon={<TypeIcon size={12} />}>
-            <Field label="Label">
+          <Section title={clip.graphic.kind === 'citation' ? 'Citation' : 'Infographic'} icon={<TypeIcon size={12} />}>
+            <Field label={clip.graphic.kind === 'citation' ? 'Publisher and date' : 'Label'}>
               <Input
                 value={clip.graphic.title}
                 onChange={(event) => setGraphic(clip.id, { title: event.target.value })}
@@ -395,7 +395,12 @@ export function Inspector() {
                 />
               </Field>
             ) : (
-              <Field label={clip.graphic.kind === 'quote' ? 'Quote' : 'Number'} className="mt-2">
+              <Field
+                label={
+                  clip.graphic.kind === 'quote' ? 'Quote' : clip.graphic.kind === 'citation' ? 'Headline' : 'Number'
+                }
+                className="mt-2"
+              >
                 <Textarea
                   rows={2}
                   value={clip.graphic.value}
@@ -403,7 +408,7 @@ export function Inspector() {
                 />
               </Field>
             )}
-            <Field label="Note" className="mt-2">
+            <Field label={clip.graphic.kind === 'citation' ? 'Where to find it' : 'Note'} className="mt-2">
               <Input
                 value={clip.graphic.caption}
                 onChange={(event) => setGraphic(clip.id, { caption: event.target.value })}
