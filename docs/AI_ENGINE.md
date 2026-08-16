@@ -331,6 +331,88 @@ of the *middle* so both phrases keep air around them, and always leaves a beat.
 The slider runs from "cuts pauses over 2.0s, leaving 0.45s" to "over 0.28s,
 leaving 0.08s", and defaults near the conservative end.
 
+### Every cut judged on its own
+
+The version this replaces applied one technique to every seam, which is the one
+thing a professional editor never does. Most cuts in a talking head need nothing;
+a few need help; the handful that need real help each need a different kind.
+Adding a dissolve to a cut that was already invisible makes it *more* noticeable.
+
+So `features/edit/smoothPlan.ts` measures each seam before deciding anything.
+`features/analysis/frameProbe.ts` seeks the video and paints three frames either
+side onto a 160-pixel canvas, which gives:
+
+| Measured | Meaning |
+| --- | --- |
+| Pixel difference across the join | How big the visual jump is |
+| Brightness shift | A lighting or exposure change |
+| Motion energy before / after | Whether the speaker was moving into and out of the cut |
+| Motion centroid shift | How far the moving thing moved — see the caveat below |
+
+Alongside that: the audio level either side of the join from the loudness
+envelope, whether the join lands in silence, whether it falls on a sentence
+boundary or inside one, and whether B-roll exists for that moment.
+
+**What this cannot see.** There is no face detection, no hand tracking and no
+expression recognition — that needs a vision model this product does not ship,
+and inventing one would mean reporting confident numbers nobody can check.
+`subjectShift` is the *centroid of inter-frame motion*: in a talking head the
+thing that moves is the person, so it is a usable proxy for where they are, and
+it is named and reported as a proxy. When there is no measurable movement either
+side it reports zero rather than guessing.
+
+#### Choosing
+
+`noticeability()` scores the seam 0–1, weighted towards the picture (a jump cut
+is seen before it is heard) and towards *movement*: a cut made while the speaker
+was already moving is partly camouflaged, one made between two held poses has
+nothing to hide behind. `judgeCut()` then picks the least intrusive thing that
+fixes what is actually wrong with that seam:
+
+| Situation | Technique |
+| --- | --- |
+| Already reads as clean | **Nothing at all** |
+| Picture fine, waveform severed | Audio crossfade, ~45 ms |
+| Moderate position change, speaker still, budget left | Punch-in, 100% ↔ 105% |
+| Big jump with relevant B-roll available | **B-roll** — proposed, never placed |
+| Sentence running across a clip change | J-cut or L-cut |
+| Cut inside one take with removed footage to blend through | Dissolve |
+| Two different recordings, nothing else applies | Hard cut + audio crossfade |
+
+Two rationing rules keep the whole edit in proportion. Punch-ins have a budget
+for the video rather than a decision per seam — a reframe every third cut is
+variation, a reframe at every cut is a tic — and they alternate 105% / 100% so a
+run of them does not creep the framing steadily tighter. And a dissolve requires
+the seam to be *clearly* noticeable, not merely past the leave-it-alone line,
+which is what stops a conservative pass escalating to a dissolve every time it
+declines to reframe.
+
+A join between two separate recordings is judged here too, not only the seams
+the cuts create — those joins are the most exposed in the whole edit, and a
+dissolve is impossible at one by construction because there is no removed
+footage behind it.
+
+#### Second-guessing the choice
+
+`reviseJudgement()` asks the question a professional asks last: *would I keep
+this?* Every technique has a cost, and a technique costing more than the jump it
+hides is worse than doing nothing. It downgrades a dissolve too short to read as
+anything but a flicker, a dissolve the neighbouring clips are too brief to carry,
+a punch-in on a shot too short to settle into, a punch-in that would compete with
+a gesture already in progress, and a J/L cut where the audio was continuous
+anyway. A test asserts the invariant directly: no plan ever leaves a treatment
+whose residual score exceeds the seam's own.
+
+#### Editing style
+
+Conservative, **Natural** (the default) and Dynamic set how obvious a cut has to
+be before anything is done, how many punch-ins are allowed, and whether B-roll is
+proposed. The contract between them is tested rather than assumed: for any given
+seam, moving towards Conservative can only ever do *less* to it.
+
+The review lists every join with what was decided, why, and the score before and
+after — and leads with the number that matters, how many joins needed nothing.
+
 ### Making the cut invisible
 
 Three separate things make an edit noticeable, and only the third is a
