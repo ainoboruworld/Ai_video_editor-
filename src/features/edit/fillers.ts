@@ -276,8 +276,11 @@ function contextAt(text: string, charStart: number, charEnd: number): WordContex
  * analysed, pulled out to the quiet on either side — a filler is nearly always
  * bracketed by a breath, so the silence boundaries are a better cut point than
  * the interpolated one.
+ *
+ * Exported because every transcript-derived cut has the same problem: cutting
+ * text does nothing to the video without a real span of recording behind it.
  */
-function spanFor(
+export function spanFor(
   segment: TranscriptSegment,
   charStart: number,
   charEnd: number,

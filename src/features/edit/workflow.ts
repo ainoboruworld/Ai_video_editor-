@@ -13,8 +13,10 @@ export type StepId =
   | 'video'
   | 'transcript'
   | 'fillers'
+  | 'lines'
   | 'pauses'
   | 'smooth'
+  | 'template'
   | 'music'
   | 'broll'
   | 'captions'
@@ -30,11 +32,23 @@ export interface StepDefinition {
 }
 
 export const STEPS: StepDefinition[] = [
-  { id: 'video', title: 'Your video', blurb: 'Upload the recording you want to edit.', optional: false },
+  { id: 'video', title: 'Your clips', blurb: 'Upload one recording or several, in the order they play.', optional: false },
   { id: 'transcript', title: 'Transcript', blurb: 'Everything downstream reads from this.', optional: true },
   { id: 'fillers', title: 'Remove fillers', blurb: 'Cut the ums and ahs you agree with.', optional: true },
+  {
+    id: 'lines',
+    title: 'Cut unnecessary lines',
+    blurb: 'Repeats, false starts, corrections and rambling — reviewed one by one.',
+    optional: true,
+  },
   { id: 'pauses', title: 'Trim pauses', blurb: 'Shorten the dead air without flattening the pacing.', optional: true },
   { id: 'smooth', title: 'Smooth the cuts', blurb: 'Take the click and the jump out of each join.', optional: true },
+  {
+    id: 'template',
+    title: 'Reference style',
+    blurb: 'Match the pacing and look of a video you like. Style only, never its footage.',
+    optional: true,
+  },
   { id: 'music', title: 'Background music', blurb: 'Add a bed that ducks under the voice.', optional: true },
   { id: 'broll', title: 'B-roll', blurb: 'Cover the moments that need a picture.', optional: true },
   { id: 'captions', title: 'Captions', blurb: 'Built from the final transcript.', optional: true },
@@ -54,6 +68,11 @@ export interface WorkflowInput {
   /** Filler candidates the user has accepted and applied. */
   appliedCuts: number;
   hasPauseCuts: boolean;
+  /** Smart-cut candidates found in the transcript, and how many are accepted. */
+  lineCandidates?: number;
+  linesAccepted?: number;
+  /** Name of the template applied to this project, if any. */
+  templateApplied?: string | null;
 }
 
 /**
@@ -83,7 +102,12 @@ export function workflowState(input: WorkflowInput): Record<StepId, StepState> {
   return {
     video: {
       done: primaryClips.length > 0,
-      detail: primaryClips.length > 0 ? formatDuration(duration) : 'no video yet',
+      detail:
+        primaryClips.length === 0
+          ? 'no video yet'
+          : primaryClips.length === 1
+            ? formatDuration(duration)
+            : `${primaryClips.length} clips · ${formatDuration(duration)}`,
     },
     transcript: {
       done: input.transcriptSegments > 0,
@@ -93,6 +117,15 @@ export function workflowState(input: WorkflowInput): Record<StepId, StepState> {
       done: input.appliedCuts > 0,
       detail: input.appliedCuts > 0 ? `${input.appliedCuts} cuts applied` : 'not yet',
     },
+    lines: {
+      done: (input.linesAccepted ?? 0) > 0,
+      detail:
+        (input.lineCandidates ?? 0) === 0
+          ? input.transcriptSegments > 0
+            ? 'nothing found'
+            : 'needs a transcript'
+          : `${input.linesAccepted ?? 0} of ${input.lineCandidates} selected`,
+    },
     pauses: {
       done: input.hasPauseCuts,
       detail: input.hasPauseCuts ? 'trimmed' : 'not yet',
@@ -100,6 +133,10 @@ export function workflowState(input: WorkflowInput): Record<StepId, StepState> {
     smooth: {
       done: smoothed > 0,
       detail: smoothed > 0 ? `${smoothed} clips smoothed` : 'not yet',
+    },
+    template: {
+      done: Boolean(input.templateApplied),
+      detail: input.templateApplied ?? 'none',
     },
     music: {
       done: musicClips.length > 0,
@@ -125,6 +162,7 @@ export function suggestedStep(state: Record<StepId, StepState>): StepId {
   if (!state.video.done) return 'video';
   if (!state.transcript.done) return 'transcript';
   if (!state.fillers.done) return 'fillers';
+  if (!state.lines.done) return 'lines';
   if (!state.pauses.done) return 'pauses';
   if (!state.smooth.done) return 'smooth';
   if (!state.captions.done) return 'captions';

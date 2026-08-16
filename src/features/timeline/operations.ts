@@ -18,6 +18,7 @@ import { useEditorStore, findClip } from '@/state/editorStore';
 import { toast } from '@/state/toastStore';
 import type { Asset } from '@/types';
 import { newId } from '@/features/broll/assemble';
+import { appendPoint } from '@/features/edit/clips';
 
 export function splitAtPlayhead(): void {
   const state = useEditorStore.getState();
@@ -77,13 +78,17 @@ export function addAssetToTimeline(asset: Asset, options?: { at?: number; role?:
   const sequence = state.sequence;
   if (!sequence) return;
 
-  const role =
-    options?.role ??
-    (asset.kind === 'audio' ? 'music' : trackHasClips(sequence, 'video') ? 'broll' : 'video');
+  // A second video is another take, not B-roll. Several recordings edited as
+  // one piece is the normal case for this product, so video appends to the main
+  // track in running order; cutaways come from the B-roll panel, which asks for
+  // that role by name.
+  const role = options?.role ?? (asset.kind === 'audio' ? 'music' : asset.kind === 'image' ? 'broll' : 'video');
   const track = trackByRole(sequence, role) ?? sequence.tracks[0];
   if (!track) return;
 
-  const start = options?.at ?? nextFreeSlot(sequence, track.id, state.playhead);
+  const start =
+    options?.at ??
+    (role === 'video' ? appendPoint(sequence) : nextFreeSlot(sequence, track.id, state.playhead));
   const duration = asset.kind === 'image' ? 4 : Math.max(0.5, asset.duration ?? 5);
 
   const clip = makeClip({
@@ -99,11 +104,6 @@ export function addAssetToTimeline(asset: Asset, options?: { at?: number; role?:
   if (state.apply({ type: 'ADD_CLIP', trackId: track.id, clip }, `Add ${asset.kind}`)) {
     useEditorStore.getState().select([clip.id]);
   }
-}
-
-function trackHasClips(sequence: Sequence, role: 'video' | 'broll'): boolean {
-  const track = trackByRole(sequence, role);
-  return (track?.clips.length ?? 0) > 0;
 }
 
 /** First position at or after `from` where a new clip will not overlap. */

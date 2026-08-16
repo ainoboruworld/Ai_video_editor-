@@ -14,10 +14,12 @@ import {
   AudioWaveform,
   Captions,
   Check,
+  Clapperboard,
   ChevronDown,
   Download,
   FileText,
   Film,
+  GripVertical,
   Music,
   Newspaper,
   Scissors,
@@ -30,7 +32,7 @@ import { useEditorStore } from '@/state/editorStore';
 import { uploadFile, ACCEPTED_MIME } from '@/features/media/upload';
 import { addAssetToTimeline, addGraphicClip } from '@/features/timeline/operations';
 import {
-  analysePrimaryClip,
+  analyseTimeline,
   applyCaptions,
   cutsToCommands,
   insertCutaway,
@@ -45,9 +47,20 @@ import {
   type FillerCandidate,
 } from '@/features/edit/fillers';
 import { DEFAULT_AGGRESSION, describeAggression, pauseCuts, type PauseCut } from '@/features/edit/pauses';
+import { CUT_KIND_LABELS, defaultAcceptedCuts, detectSmartCuts, type SmartCut } from '@/features/edit/smartCuts';
+import { analyseReference } from '@/features/template/analyse';
+import { planTemplate, type TemplatePlan } from '@/features/template/apply';
+import {
+  describeProfile,
+  INTENSITY_LABELS,
+  type StyleProfile,
+  type TemplateIntensity,
+} from '@/features/template/profile';
+import { deleteTemplate, listTemplates, saveTemplate } from '@/features/template/store';
 import { SMOOTHING_STYLES, smoothingCommands, smoothSeams, type SmoothingStyle } from '@/features/edit/smoothing';
 import { DUCKING_DEFAULTS, duckingKeyframes } from '@/features/edit/ducking';
 import { citationDate, citationGraphic, newsCuesFromTranscript, type NewsCue } from '@/features/edit/news';
+import { closeGapsCommands, joinCommands, moveInOrder, orderedClips, reorderCommands, type OrderedClip } from '@/features/edit/clips';
 import { STEPS, suggestedStep, workflowState, type StepId } from '@/features/edit/workflow';
 import { segmentsToCues, type TranscriptSegment, type TranscriptSource } from '@/features/transcript/model';
 import { mergeRanges, type AudioAnalysis, type Range } from '@/features/analysis/audioAnalysis';
@@ -56,7 +69,7 @@ import { sequenceDuration, trackByRole } from '@/lib/engine';
 import { Badge, Button, EmptyState, PanelHeader, ProgressBar } from '@/components/ui';
 import { clock } from '@/lib/format';
 import { toast } from '@/state/toastStore';
-import type { NewsArticle } from '@/types';
+import type { Asset, NewsArticle } from '@/types';
 import { cn } from '@/lib/cn';
 
 export function EditFlowPanel() {
@@ -73,9 +86,9 @@ export function EditFlowPanel() {
   // back would be both slow and surprising.
   const analysis = useEditorStore((state) => state.audioAnalysis);
   const setAnalysis = useEditorStore((state) => state.setAudioAnalysis);
-  const decisions = useEditorStore((state) => state.fillerDecisions);
-  const setFillerDecision = useEditorStore((state) => state.setFillerDecision);
-  const setFillerDecisions = useEditorStore((state) => state.setFillerDecisions);
+  const decisions = useEditorStore((state) => state.cutDecisions);
+  const setCutDecision = useEditorStore((state) => state.setCutDecision);
+  const setCutDecisions = useEditorStore((state) => state.setCutDecisions);
 
   const [open, setOpen] = useState<StepId | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -86,21 +99,45 @@ export function EditFlowPanel() {
   const [pausesTrimmed, setPausesTrimmed] = useState(false);
   const [suggestions, setSuggestions] = useState<BrollSuggestion[] | null>(null);
   const [articles, setArticles] = useState<{ cue: NewsCue; found: NewsArticle[] }[] | null>(null);
+  const [templates, setTemplates] = useState<StyleProfile[]>([]);
+  const [activeTemplate, setActiveTemplate] = useState<StyleProfile | null>(null);
+  const [intensity, setIntensity] = useState<TemplateIntensity>('medium');
+  const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null);
+  // Music levels a template asked for, so the music step mixes like the reference.
+  const [templateDucking, setTemplateDucking] = useState<{ bed: number; ducked: number } | null>(null);
+  const [analysisNote, setAnalysisNote] = useState<string | null>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const segments: TranscriptSegment[] = useMemo(() => transcript?.segments ?? [], [transcript]);
   const primary = sequence ? primaryClip(sequence) : null;
   const duration = sequence ? sequenceDuration(sequence) : 0;
 
+  // Cuts the transcript justifies beyond fillers: repeats, false starts,
+  // corrections, restatements, rambling and marked tangents. Same decision
+  // record as the fillers, so one list of ids drives the whole plan.
+  const lineCuts = useMemo(
+    () => detectSmartCuts({ segments, silences: analysis?.silences }),
+    [segments, analysis],
+  );
+
+  const acceptedLines = useMemo(() => {
+    const auto = defaultAcceptedCuts(lineCuts);
+    return lineCuts.filter((cut) => decisions[cut.id] ?? auto.has(cut.id));
+  }, [lineCuts, decisions]);
+
   const state = useMemo(
     () =>
       workflowState({
         sequence,
         transcriptSegments: segments.length,
+        lineCandidates: lineCuts.length,
+        linesAccepted: acceptedLines.length,
+        templateApplied: appliedTemplate,
         appliedCuts,
         hasPauseCuts: pausesTrimmed,
       }),
-    [sequence, segments.length, appliedCuts, pausesTrimmed],
+    [sequence, segments.length, lineCuts.length, acceptedLines.length, appliedCuts, pausesTrimmed, appliedTemplate],
   );
 
   // Filler candidates are recomputed from whatever the transcript currently
@@ -129,14 +166,22 @@ export function EditFlowPanel() {
     return out;
   }, [candidates, decisions]);
 
+  const clips = useMemo(() => (sequence ? orderedClips(sequence) : []), [sequence]);
+
+  // Saved templates live in this browser, so they are available in every
+  // project without an account or a server round-trip.
+  useEffect(() => {
+    setTemplates(listTemplates());
+  }, []);
+
   const suggested = suggestedStep(state);
   useEffect(() => {
     setOpen((current) => current ?? suggested);
   }, [suggested]);
 
   const toggleCandidate = useCallback(
-    (candidate: FillerCandidate) => setFillerDecision(candidate.id, !accepted.has(candidate.id)),
-    [accepted, setFillerDecision],
+    (candidate: FillerCandidate) => setCutDecision(candidate.id, !accepted.has(candidate.id)),
+    [accepted, setCutDecision],
   );
 
   const seek = useCallback(
@@ -151,37 +196,62 @@ export function EditFlowPanel() {
     [candidates, accepted],
   );
 
+  // The analysis is measured across the whole timeline, so its silences are
+  // already timeline seconds — no per-clip mapping, and pauses inside the fourth
+  // clip are found the same way as pauses inside the first.
   const pauses: PauseCut[] = useMemo(() => {
-    if (!analysis || !primary) return [];
-    return pauseCuts({ silences: analysis.silences, duration, aggression }).flatMap((cut) => {
-      const mapped = sourceToTimeline(primary.clip, cut);
-      return mapped ? [{ ...mapped, pauseSeconds: cut.pauseSeconds, keptSeconds: cut.keptSeconds }] : [];
-    });
-  }, [analysis, primary, duration, aggression]);
+    if (!analysis) return [];
+    return pauseCuts({ silences: analysis.silences, duration, aggression });
+  }, [analysis, duration, aggression]);
 
+  // Merged, so a filler inside a cut line is not counted or cut twice.
   const plannedCuts: Range[] = useMemo(
-    () => mergeRanges([...acceptedFillers.map((f) => ({ start: f.start, end: f.end })), ...pauses]),
-    [acceptedFillers, pauses],
+    () =>
+      mergeRanges([
+        ...acceptedFillers.map((f) => ({ start: f.start, end: f.end })),
+        ...acceptedLines.map((c) => ({ start: c.start, end: c.end })),
+        ...pauses,
+      ]),
+    [acceptedFillers, acceptedLines, pauses],
   );
   const plannedSeconds = plannedCuts.reduce((total, cut) => total + (cut.end - cut.start), 0);
 
   // -------------------------------------------------------------- actions ---
 
+  /**
+   * Uploads one or more clips and appends them in the order they were given.
+   *
+   * Sequential rather than parallel on purpose: the running order is the order
+   * the user picked, and appending depends on the clip before it already being
+   * on the timeline. One failure does not abandon the rest — the others still
+   * land and the failure is named.
+   */
   const onUpload = useCallback(
-    async (file: File) => {
-      if (!projectId) return;
+    async (files: File[]) => {
+      if (!projectId || files.length === 0) return;
       setBusy('upload');
       setUploadProgress(0);
+      let added = 0;
+      let localOnlyCount = 0;
       try {
-        const { asset, localOnly } = await uploadFile(file, projectId, setUploadProgress);
-        useEditorStore.getState().addAsset(asset);
-        addAssetToTimeline(asset);
-        if (localOnly) {
+        for (const [index, file] of files.entries()) {
+          try {
+            const { asset, localOnly } = await uploadFile(file, projectId, (fraction) =>
+              setUploadProgress((index + fraction) / files.length),
+            );
+            useEditorStore.getState().addAsset(asset);
+            addAssetToTimeline(asset);
+            added += 1;
+            if (localOnly) localOnlyCount += 1;
+          } catch (error) {
+            toast.error(`${file.name} failed`, error instanceof Error ? error.message : undefined);
+          }
+        }
+        if (added > 1) toast.success(`${added} clips added`, 'They play in this order. Drag to change it.');
+        if (localOnlyCount > 0) {
           toast.info('Stored in this browser only', 'Configure object storage to keep it across reloads.');
         }
-        setOpen('transcript');
-      } catch (error) {
-        toast.error('Upload failed', error instanceof Error ? error.message : undefined);
+        if (added > 0) setOpen('transcript');
       } finally {
         setBusy(null);
         setUploadProgress(null);
@@ -190,10 +260,51 @@ export function EditFlowPanel() {
     [projectId],
   );
 
+  /**
+   * Softens the joins between clips.
+   *
+   * A join between two different recordings has no removed footage to dissolve
+   * through, so this is a short audio fade on both sides — which is what takes
+   * the click out — plus an optional quarter-second dissolve on the incoming
+   * clip. Any gaps left by a deleted clip are closed in the same batch, because
+   * a hole between two clips is a black frame.
+   */
+  const smoothJoins = useCallback(
+    (dissolve: boolean) => {
+      if (!sequence) return;
+      const commands = [...closeGapsCommands(sequence), ...joinCommands(sequence, { dissolve })];
+      if (commands.length === 0) {
+        toast.info('Nothing to smooth', 'The joins between these clips are already handled.');
+        return;
+      }
+      setBusy('joins');
+      const ok = apply(commands, 'Smooth the joins between clips');
+      setBusy(null);
+      if (ok) {
+        toast.success(
+          'Joins smoothed',
+          dissolve ? 'Short dissolve and audio fade at each join.' : 'Audio fade at each join.',
+        );
+      }
+    },
+    [sequence, apply],
+  );
+
+  /** Reordering is one undoable batch, so the running order is never half-changed. */
+  const applyOrder = useCallback(
+    (order: string[]) => {
+      if (!sequence) return;
+      const commands = reorderCommands(sequence, order);
+      if (commands.length === 0) return;
+      apply(commands, 'Reorder clips');
+    },
+    [sequence, apply],
+  );
+
   const runAnalysis = useCallback(async () => {
     setBusy('analyse');
     try {
-      const result = await analysePrimaryClip();
+      const result = await analyseTimeline();
       setAnalysis(result);
       toast.success(
         `${result.silences.length} pauses found`,
@@ -294,30 +405,83 @@ export function EditFlowPanel() {
     try {
       // Ducking needs to know when the speaker is talking; reuse the analysis
       // if it is still around, otherwise run it now.
-      const result = analysis ?? (await analysePrimaryClip());
+      const result = analysis ?? (await analyseTimeline());
       setAnalysis(result);
-      const speech = primary
-        ? result.speech.flatMap((range) => {
-            const mapped = sourceToTimeline(primary.clip, range);
-            return mapped ? [mapped] : [];
-          })
-        : result.speech;
-
-      const keyframes = duckingKeyframes({ clip, speech });
+      const keyframes = duckingKeyframes({
+        clip,
+        speech: result.speech,
+        // A reference's measured levels win over the defaults, so applying a
+        // template really does change the mix rather than only the picture.
+        options: templateDucking ?? undefined,
+      });
       if (!apply({ type: 'SET_KEYFRAMES', clipId: clip.id, prop: 'volume', keyframes }, 'Duck music under speech')) {
         toast.info('Nothing changed', 'The music clip is already ducked this way.');
         return;
       }
       toast.success(
         'Music ducks under speech',
-        `${Math.round(DUCKING_DEFAULTS.bed * 100)}% in the gaps, ${Math.round(DUCKING_DEFAULTS.ducked * 100)}% while talking.`,
+        `${Math.round((templateDucking?.bed ?? DUCKING_DEFAULTS.bed) * 100)}% in the gaps, ${Math.round((templateDucking?.ducked ?? DUCKING_DEFAULTS.ducked) * 100)}% while talking.`,
       );
     } catch (error) {
       toast.error('Could not set up ducking', error instanceof Error ? error.message : undefined);
     } finally {
       setBusy(null);
     }
-  }, [sequence, analysis, primary, apply, setAnalysis]);
+  }, [sequence, analysis, apply, setAnalysis, templateDucking]);
+
+  /**
+   * Measures a reference video's editing style.
+   *
+   * The file is read in this browser and never uploaded — a reference is
+   * usually someone else's finished work, and nothing is needed from it but
+   * statistics.
+   */
+  const onReference = useCallback(async (file: File) => {
+    setBusy('template');
+    setAnalysisNote('Reading the reference…');
+    try {
+      const profile = await analyseReference(file, file.name, {
+        onProgress: (message) => setAnalysisNote(message),
+      });
+      setActiveTemplate(profile);
+      setTemplates(saveTemplate(profile));
+      toast.success('Reference analysed', describeProfile(profile));
+    } catch (error) {
+      toast.error('Could not analyse that video', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(null);
+      setAnalysisNote(null);
+    }
+  }, []);
+
+  /** The plan is computed for display first; nothing is applied until asked. */
+  const templatePlan = useMemo(
+    () =>
+      sequence && activeTemplate
+        ? planTemplate({ sequence, profile: activeTemplate, intensity, currentAggression: aggression })
+        : null,
+    [sequence, activeTemplate, intensity, aggression],
+  );
+
+  const applyTemplate = useCallback(() => {
+    if (!activeTemplate || !templatePlan) return;
+    setBusy('apply-template');
+    try {
+      // Settings the later steps read, and clip commands, in one go. The
+      // commands are one undoable batch; the settings are just where the
+      // sliders now sit, so the user can still overrule any of them.
+      setAggression(templatePlan.aggression);
+      setSmoothing(templatePlan.smoothing);
+      setTemplateDucking(templatePlan.ducking);
+      if (templatePlan.commands.length > 0) {
+        apply(templatePlan.commands, `Apply "${activeTemplate.name}" style`);
+      }
+      setAppliedTemplate(activeTemplate.name);
+      toast.success(`"${activeTemplate.name}" applied`, templatePlan.effects[0]);
+    } finally {
+      setBusy(null);
+    }
+  }, [activeTemplate, templatePlan, apply]);
 
   const findBroll = useCallback(async () => {
     if (segments.length === 0) {
@@ -428,17 +592,23 @@ export function EditFlowPanel() {
           type="file"
           accept={ACCEPTED_MIME.join(',')}
           className="hidden"
+          multiple
           onChange={(event) => {
-            const file = event.target.files?.[0];
+            const files = Array.from(event.target.files ?? []);
             event.target.value = '';
-            if (file) void onUpload(file);
+            if (files.length) void onUpload(files);
           }}
         />
         {primary ? (
           <>
-            <p className="text-2xs text-ink-2">
-              {assets.find((asset) => asset.id === primary.clip.assetId)?.name ?? 'Your video'} · {clock(duration)}
-            </p>
+            <ClipRunningOrder
+              clips={clips}
+              assets={assets}
+              onReorder={applyOrder}
+              onSeek={seek}
+              onSmoothJoins={smoothJoins}
+              busy={busy === 'joins'}
+            />
             <Button
               size="sm"
               variant={analysis ? undefined : 'primary'}
@@ -447,11 +617,11 @@ export function EditFlowPanel() {
               loading={busy === 'analyse'}
               onClick={() => void runAnalysis()}
             >
-              {analysis ? 'Re-analyse video' : 'Analyse video'}
+              {analysis ? 'Re-analyse' : clips.length > 1 ? `Analyse all ${clips.length} clips` : 'Analyse video'}
             </Button>
             {analysis ? <AnalysisSummary analysis={analysis} duration={duration} fillers={candidates.length} /> : null}
             <Button size="sm" className="mt-1.5 w-full justify-start" icon={<Upload size={12} />} onClick={() => inputRef.current?.click()}>
-              Replace with another file
+              Add more clips
             </Button>
           </>
         ) : (
@@ -498,8 +668,20 @@ export function EditFlowPanel() {
         accepted={accepted}
         onToggle={toggleCandidate}
         onSeek={seek}
-        onAcceptAll={() => setFillerDecisions(Object.fromEntries(candidates.map((c) => [c.id, true])))}
-        onRejectAll={() => setFillerDecisions(Object.fromEntries(candidates.map((c) => [c.id, false])))}
+        onAcceptAll={() => setCutDecisions(Object.fromEntries(candidates.map((c) => [c.id, true])))}
+        onRejectAll={() => setCutDecisions(Object.fromEntries(candidates.map((c) => [c.id, false])))}
+      />
+    ),
+
+    lines: (
+      <SmartCutReview
+        cuts={lineCuts}
+        hasTranscript={segments.length > 0}
+        accepted={new Set(acceptedLines.map((cut) => cut.id))}
+        onToggle={(cut, next) => setCutDecision(cut.id, next)}
+        onSeek={seek}
+        onAcceptAll={() => setCutDecisions({ ...decisions, ...Object.fromEntries(lineCuts.map((c) => [c.id, true])) })}
+        onRejectAll={() => setCutDecisions({ ...decisions, ...Object.fromEntries(lineCuts.map((c) => [c.id, false])) })}
       />
     ),
 
@@ -590,6 +772,85 @@ export function EditFlowPanel() {
           The dissolve is built from the footage each cut removed, so the blend happens over the deleted filler rather
           than over anything you kept — and that filler is never heard.
         </p>
+      </>
+    ),
+
+    template: (
+      <>
+        <input
+          ref={templateInputRef}
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime,video/x-m4v"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void onReference(file);
+          }}
+        />
+        <p className="text-2xs leading-relaxed text-ink-2">
+          Point this at a video whose editing you like. It measures how that video was cut — pace, shot length, joins,
+          caption placement, music level — and applies the same approach here. None of its footage is copied.
+        </p>
+        <Button
+          size="sm"
+          variant="primary"
+          className="mt-2 w-full justify-start"
+          icon={<Clapperboard size={12} />}
+          loading={busy === 'template'}
+          onClick={() => templateInputRef.current?.click()}
+        >
+          Analyse a reference video
+        </Button>
+        {analysisNote ? <p className="mt-1 text-2xs text-ink-3">{analysisNote}</p> : null}
+
+        {templates.length > 0 ? (
+          <>
+            <p className="mb-1 mt-3 text-2xs uppercase tracking-wide text-ink-3">Saved templates</p>
+            <div className="space-y-1">
+              {templates.map((profile) => (
+                <div
+                  key={profile.id}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md border px-1.5 py-1.5',
+                    activeTemplate?.id === profile.id ? 'border-accent bg-accent/5' : 'border-line bg-bg-2',
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveTemplate(profile)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <span className="block truncate text-2xs font-medium text-ink-0">{profile.name}</span>
+                    <span className="block truncate text-2xs text-ink-3">{describeProfile(profile)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete this template"
+                    onClick={() => {
+                      setTemplates(deleteTemplate(profile.id));
+                      if (activeTemplate?.id === profile.id) setActiveTemplate(null);
+                    }}
+                    className="shrink-0 px-1 text-2xs text-ink-3 hover:text-danger"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {activeTemplate ? (
+          <TemplatePreview
+            profile={activeTemplate}
+            plan={templatePlan}
+            intensity={intensity}
+            onIntensity={setIntensity}
+            onApply={applyTemplate}
+            busy={busy === 'apply-template'}
+          />
+        ) : null}
       </>
     ),
 
@@ -801,8 +1062,8 @@ export function EditFlowPanel() {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        const file = event.dataTransfer.files?.[0];
-        if (file) void onUpload(file);
+        const files = Array.from(event.dataTransfer.files ?? []);
+        if (files.length) void onUpload(files);
       }}
     >
       <PanelHeader title="Edit" description="Upload, cut, smooth, export." />
@@ -814,7 +1075,8 @@ export function EditFlowPanel() {
           <div className="mb-3 rounded-lg border border-accent/40 bg-bg-2 p-2.5">
             <p className="text-xs font-semibold text-ink-0">{plannedCuts.length} cuts ready</p>
             <p className="mt-0.5 text-2xs text-ink-3">
-              {acceptedFillers.length} fillers · {pauses.length} pauses · removes {clock(plannedSeconds)} ·{' '}
+              {acceptedFillers.length} fillers · {acceptedLines.length} lines · {pauses.length} pauses · removes{' '}
+              {clock(plannedSeconds)} ·{' '}
               {clock(Math.max(0, duration - plannedSeconds))} after
             </p>
             <Button size="sm" variant="primary" className="mt-2 w-full justify-center" icon={<Scissors size={12} />} onClick={applyPlannedCuts}>
@@ -1081,3 +1343,364 @@ function brollCuesFromTranscript(
   return cues;
 }
 
+
+/**
+ * The running order, with drag-to-reorder.
+ *
+ * Deliberately a list rather than a second timeline: the timeline below already
+ * shows where things are, and what the user needs here is which take comes
+ * after which. Dragging reorders the real clips — one undoable batch — so the
+ * preview and the exported file follow immediately.
+ */
+function ClipRunningOrder({
+  clips,
+  assets,
+  onReorder,
+  onSeek,
+  onSmoothJoins,
+  busy,
+}: {
+  clips: OrderedClip[];
+  assets: Asset[];
+  onReorder: (order: string[]) => void;
+  onSeek: (time: number) => void;
+  onSmoothJoins: (dissolve: boolean) => void;
+  busy: boolean;
+}) {
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+
+  const name = (clip: OrderedClip) =>
+    assets.find((asset) => asset.id === clip.clip.assetId)?.name ?? clip.clip.name ?? 'Clip';
+
+  if (clips.length === 0) return null;
+
+  if (clips.length === 1) {
+    const only = clips[0]!;
+    return (
+      <p className="text-2xs text-ink-2">
+        {name(only)} · {clock(only.duration)}
+      </p>
+    );
+  }
+
+  const drop = (target: number) => {
+    if (dragging === null) return;
+    const order = moveInOrder(
+      clips.map((entry) => entry.clip.id),
+      dragging,
+      target,
+    );
+    setDragging(null);
+    setOver(null);
+    onReorder(order);
+  };
+
+  return (
+    <>
+      <p className="mb-1 text-2xs uppercase tracking-wide text-ink-3">
+        Running order ({clips.length} clips · {clock(clips.reduce((total, entry) => total + entry.duration, 0))})
+      </p>
+      <ol className="space-y-1">
+        {clips.map((entry, index) => (
+          <li
+            key={entry.clip.id}
+            draggable
+            onDragStart={() => setDragging(index)}
+            onDragEnd={() => {
+              setDragging(null);
+              setOver(null);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setOver(index);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              drop(index);
+            }}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md border bg-bg-2 px-1.5 py-1.5',
+              dragging === index ? 'opacity-40' : '',
+              over === index && dragging !== null && dragging !== index ? 'border-accent' : 'border-line',
+            )}
+          >
+            <GripVertical size={12} className="shrink-0 cursor-grab text-ink-3" />
+            <span className="w-4 shrink-0 text-center font-mono text-2xs text-ink-3">{index + 1}</span>
+            <button
+              type="button"
+              onClick={() => onSeek(entry.start)}
+              className="min-w-0 flex-1 truncate text-left text-2xs text-ink-0 hover:text-accent"
+              title={`${name(entry)} — starts at ${clock(entry.start)}`}
+            >
+              {name(entry)}
+            </button>
+            <span className="shrink-0 font-mono text-2xs text-ink-3">{clock(entry.duration)}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-1 text-2xs leading-relaxed text-ink-3">
+        Drag to reorder. They are edited as one continuous video, and each clip keeps its own audio in sync.
+      </p>
+      <div className="mt-1.5 flex gap-1">
+        <Button size="sm" className="flex-1 justify-center" loading={busy} onClick={() => onSmoothJoins(false)}>
+          Soften joins
+        </Button>
+        <Button size="sm" className="flex-1 justify-center" loading={busy} onClick={() => onSmoothJoins(true)}>
+          + dissolve
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The unnecessary-line review.
+ *
+ * Every candidate shows the four things needed to judge it: where it is, what
+ * would go, why, and how sure the detector is. Clicking the text plays it —
+ * which is the only preview that settles an argument about whether a line is
+ * needed — and the decision is one click either way.
+ *
+ * Confident removals arrive ticked; anything the detector called REVIEW arrives
+ * unticked, because cutting someone's sentences on a guess is worse than
+ * leaving them in.
+ */
+function SmartCutReview({
+  cuts,
+  hasTranscript,
+  accepted,
+  onToggle,
+  onSeek,
+  onAcceptAll,
+  onRejectAll,
+}: {
+  cuts: SmartCut[];
+  hasTranscript: boolean;
+  accepted: Set<string>;
+  onToggle: (cut: SmartCut, next: boolean) => void;
+  onSeek: (time: number) => void;
+  onAcceptAll: () => void;
+  onRejectAll: () => void;
+}) {
+  if (!hasTranscript) {
+    return (
+      <p className="text-2xs leading-relaxed text-ink-2">
+        This reads the transcript for repeats, false starts, corrections and rambling. Get a transcript and the
+        candidates appear here.
+      </p>
+    );
+  }
+
+  if (cuts.length === 0) {
+    return (
+      <p className="text-2xs leading-relaxed text-ink-2">
+        Nothing here reads as a repeat, a false start, a correction or a ramble. Fillers and pauses are handled in
+        their own steps.
+      </p>
+    );
+  }
+
+  const toRemove = cuts.filter((cut) => cut.verdict === 'remove').length;
+  const seconds = cuts.filter((cut) => accepted.has(cut.id)).reduce((total, cut) => total + (cut.end - cut.start), 0);
+
+  return (
+    <>
+      <p className="text-2xs leading-relaxed text-ink-2">
+        {cuts.length} candidates · {toRemove} confident, {cuts.length - toRemove} to review · {accepted.size} selected
+        {seconds > 0 ? ` · removes ${clock(seconds)}` : ''}
+      </p>
+      <div className="mt-1.5 flex gap-1">
+        <Button size="sm" className="flex-1 justify-center" onClick={onAcceptAll}>
+          Accept all
+        </Button>
+        <Button size="sm" className="flex-1 justify-center" onClick={onRejectAll}>
+          Reject all
+        </Button>
+      </div>
+
+      <ul className="mt-2 space-y-1.5">
+        {cuts.map((cut) => {
+          const on = accepted.has(cut.id);
+          return (
+            <li
+              key={cut.id}
+              className={cn(
+                'rounded-md border p-1.5',
+                on ? 'border-accent/50 bg-accent/5' : 'border-line bg-bg-2',
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="rounded bg-bg-3 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ink-2">
+                  {CUT_KIND_LABELS[cut.kind]}
+                </span>
+                <span
+                  className={cn(
+                    'rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                    cut.verdict === 'remove' ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn',
+                  )}
+                >
+                  {cut.verdict === 'remove' ? 'Remove' : 'Review'}
+                </span>
+                <span className="text-[9px] uppercase tracking-wide text-ink-3">{cut.confidence}</span>
+                <span className="ml-auto font-mono text-2xs text-ink-3">
+                  {clock(cut.start)}–{clock(cut.end)}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onSeek(cut.start)}
+                title="Play from here"
+                className={cn(
+                  'mt-1 block w-full text-left text-2xs leading-relaxed hover:text-accent',
+                  on ? 'text-ink-2 line-through' : 'text-ink-0',
+                )}
+              >
+                “{cut.text.length > 180 ? `${cut.text.slice(0, 179)}…` : cut.text}”
+              </button>
+
+              <p className="mt-0.5 text-2xs leading-relaxed text-ink-3">
+                {cut.reason}
+                {cut.estimatedTiming ? ' · timing estimated' : ''}
+              </p>
+
+              <div className="mt-1 flex gap-1">
+                <Button
+                  size="sm"
+                  variant={on ? 'primary' : undefined}
+                  className="flex-1 justify-center"
+                  onClick={() => onToggle(cut, !on)}
+                >
+                  {on ? 'Will be cut' : 'Cut this'}
+                </Button>
+                <Button size="sm" className="flex-1 justify-center" onClick={() => onSeek(cut.start)}>
+                  Preview
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+/**
+ * What a template measured, and what applying it would do.
+ *
+ * The measurements are shown before the button, deliberately: a style
+ * transplant that silently retimes someone's video is the kind of magic that
+ * makes an editor stop trusting a tool. Everything the plan will *not* do is
+ * listed with the same weight as everything it will.
+ */
+function TemplatePreview({
+  profile,
+  plan,
+  intensity,
+  onIntensity,
+  onApply,
+  busy,
+}: {
+  profile: StyleProfile;
+  plan: TemplatePlan | null;
+  intensity: TemplateIntensity;
+  onIntensity: (value: TemplateIntensity) => void;
+  onApply: () => void;
+  busy: boolean;
+}) {
+  const measured: [string, string][] = [
+    ['Pace', `${profile.pacing.cutsPerMinute.toFixed(1)} cuts/min · ${profile.pacing.averageShotSeconds.toFixed(1)}s average shot`],
+    [
+      'Joins',
+      profile.transitions.style === 'hard'
+        ? 'hard cuts'
+        : `${profile.transitions.style} · ${Math.round(profile.transitions.dissolveShare * 100)}% gradual`,
+    ],
+    ['Motion', profile.motion.staticShare > 0.6 ? 'mostly locked off' : `energy ${Math.round(profile.motion.energy * 100)}%`],
+    [
+      'Captions',
+      profile.captions.present
+        ? `${profile.captions.band}, on ${Math.round(profile.captions.coverage * 100)}% of the video`
+        : 'none burned in',
+    ],
+    [
+      'Music',
+      profile.music.present
+        ? `bed at ${Math.round(profile.music.bedLevel * 100)}% between phrases`
+        : 'none detected',
+    ],
+  ];
+
+  return (
+    <div className="mt-3 rounded-md border border-line bg-bg-2 p-2">
+      <p className="text-2xs font-semibold text-ink-0">{profile.name}</p>
+      <dl className="mt-1 space-y-0.5">
+        {measured.map(([label, value]) => (
+          <div key={label} className="flex gap-2 text-2xs">
+            <dt className="w-14 shrink-0 text-ink-3">{label}</dt>
+            <dd className="min-w-0 flex-1 text-ink-2">{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <p className="mb-1 mt-2.5 text-2xs uppercase tracking-wide text-ink-3">Intensity</p>
+      <div className="flex gap-1">
+        {INTENSITY_LABELS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            title={option.blurb}
+            onClick={() => onIntensity(option.id)}
+            className={cn(
+              'flex-1 rounded border px-1 py-1 text-2xs',
+              intensity === option.id ? 'border-accent bg-accent/10 text-ink-0' : 'border-line text-ink-2 hover:text-ink-0',
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-2xs leading-relaxed text-ink-3">
+        {INTENSITY_LABELS.find((option) => option.id === intensity)?.blurb}
+      </p>
+
+      {plan ? (
+        <>
+          <p className="mb-0.5 mt-2.5 text-2xs uppercase tracking-wide text-ink-3">This will</p>
+          <ul className="space-y-0.5">
+            {plan.effects.map((effect) => (
+              <li key={effect} className="text-2xs leading-relaxed text-ink-2">
+                · {effect}
+              </li>
+            ))}
+          </ul>
+          <p className="mb-0.5 mt-2 text-2xs uppercase tracking-wide text-ink-3">This will not</p>
+          <ul className="space-y-0.5">
+            {plan.skipped.map((note) => (
+              <li key={note} className="text-2xs leading-relaxed text-ink-3">
+                · {note}
+              </li>
+            ))}
+          </ul>
+          <Button
+            size="sm"
+            variant="primary"
+            className="mt-2 w-full justify-center"
+            loading={busy}
+            icon={<Wand2 size={12} />}
+            onClick={onApply}
+          >
+            Apply this style
+          </Button>
+        </>
+      ) : (
+        <p className="mt-2 text-2xs text-ink-3">Add your clips first and the plan appears here.</p>
+      )}
+
+      {profile.caveats.length > 0 ? (
+        <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">{profile.caveats.join(' ')}</p>
+      ) : null}
+    </div>
+  );
+}
