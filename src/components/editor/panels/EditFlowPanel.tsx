@@ -58,6 +58,14 @@ import {
 } from '@/features/template/profile';
 import { deleteTemplate, listTemplates, saveTemplate } from '@/features/template/store';
 import { SMOOTHING_STYLES, smoothingCommands, smoothSeams, type SmoothingStyle } from '@/features/edit/smoothing';
+import {
+  DEFAULT_EDIT_STYLE,
+  EDIT_STYLES,
+  TECHNIQUE_LABELS,
+  type CutTechnique,
+  type EditStyle,
+} from '@/features/edit/cutJudgement';
+import { buildSmoothPlan, type SmoothPlan } from '@/features/edit/smoothPlan';
 import { DUCKING_DEFAULTS, duckingKeyframes } from '@/features/edit/ducking';
 import { citationDate, citationGraphic, newsCuesFromTranscript, type NewsCue } from '@/features/edit/news';
 import { closeGapsCommands, joinCommands, moveInOrder, orderedClips, reorderCommands, type OrderedClip } from '@/features/edit/clips';
@@ -105,6 +113,9 @@ export function EditFlowPanel() {
   const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null);
   // Music levels a template asked for, so the music step mixes like the reference.
   const [templateDucking, setTemplateDucking] = useState<{ bed: number; ducked: number } | null>(null);
+  const [editing, setEditing] = useState<EditStyle>(DEFAULT_EDIT_STYLE);
+  const [smoothPlan, setSmoothPlan] = useState<SmoothPlan | null>(null);
+  const [planNote, setPlanNote] = useState<string | null>(null);
   const [analysisNote, setAnalysisNote] = useState<string | null>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -216,6 +227,24 @@ export function EditFlowPanel() {
   );
   const plannedSeconds = plannedCuts.reduce((total, cut) => total + (cut.end - cut.start), 0);
 
+  // A plan describes one specific set of cuts. Change which cuts are selected,
+  // or the style, and the old decisions no longer describe anything.
+  useEffect(() => {
+    setSmoothPlan(null);
+  }, [plannedCuts, editing]);
+
+  // Where B-roll could cover a cut: what is already on the B-roll track, plus
+  // the moments the B-roll step has found footage for.
+  const brollRanges: Range[] = useMemo(() => {
+    const track = sequence ? trackByRole(sequence, 'broll') : null;
+    const placed = (track?.clips ?? []).map((clip) => ({ start: clip.start, end: clip.start + clip.duration }));
+    const offered = (suggestions ?? []).map((entry) => ({
+      start: entry.cue.start,
+      end: entry.cue.start + entry.cue.duration,
+    }));
+    return [...placed, ...offered];
+  }, [sequence, suggestions]);
+
   // -------------------------------------------------------------- actions ---
 
   /**
@@ -317,12 +346,56 @@ export function EditFlowPanel() {
     }
   }, [setAnalysis]);
 
+  /**
+   * Works out how each cut should be handled, before touching anything.
+   *
+   * This is the expensive step — it samples the real frames either side of every
+   * seam — and it is deliberately separate from applying, because the whole
+   * point is that the user sees the reasoning and can overrule it.
+   */
+  const planCuts = useCallback(async () => {
+    if (!sequence || plannedCuts.length === 0) return;
+    setBusy('plan');
+    setPlanNote('Looking at the frames either side of each cut…');
+    try {
+      const plan = await buildSmoothPlan({
+        sequence,
+        cutCommands: cutsToCommands(plannedCuts),
+        cuts: plannedCuts,
+        assets,
+        style: editing,
+        envelope: analysis?.envelope ?? null,
+        silences: analysis?.silences,
+        segments,
+        brollRanges,
+        newId: (prefix) => `${prefix}_${Math.round(performance.now() * 1000).toString(36)}`,
+        onProgress: (done, total) => setPlanNote(`Reading frames… ${done}/${total} cuts`),
+      });
+      setSmoothPlan(plan);
+      if (plan.visualBlind) {
+        toast.info(
+          'Judged on sound alone',
+          'No frames could be read from this media, so the picture side of each cut was not measured.',
+        );
+      }
+    } catch (error) {
+      toast.error('Could not plan the cuts', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(null);
+      setPlanNote(null);
+    }
+  }, [sequence, plannedCuts, assets, editing, analysis, segments, brollRanges]);
+
   const applyPlannedCuts = useCallback(() => {
     if (!sequence || plannedCuts.length === 0) return;
     const cutCommands = cutsToCommands(plannedCuts);
-    const smooth = smoothingCommands({ sequence, cutCommands, cuts: plannedCuts, style: smoothing });
+    // Without a plan, fall back to the single-technique smoothing rather than
+    // refusing to cut — but the planned path is the one that reads the footage.
+    const decoration = smoothPlan
+      ? smoothPlan.commands
+      : smoothingCommands({ sequence, cutCommands, cuts: plannedCuts, style: smoothing }).commands;
 
-    if (!apply([...cutCommands, ...smooth.commands], 'Remove fillers and pauses')) {
+    if (!apply([...cutCommands, ...decoration], 'Remove fillers and pauses')) {
       toast.info('Nothing was cut', 'The suggestions did not overlap the clip on the timeline.');
       return;
     }
@@ -330,16 +403,21 @@ export function EditFlowPanel() {
     setAppliedCuts(plannedCuts.length);
     setPausesTrimmed(pauses.length > 0);
     setAnalysis(null);
-    toast.success(
-      `Removed ${clock(plannedSeconds)}`,
-      smooth.dissolved > 0
-        ? `${smooth.dissolved} of ${smooth.seams} joins dissolved. Undo restores the original.`
-        : smooth.seams > 0
-          ? `${smooth.seams} joins smoothed. Undo restores the original.`
-          : 'Undo restores the original.',
-    );
+    if (smoothPlan) {
+      const counts = new Map<string, number>();
+      for (const entry of smoothPlan.entries) {
+        counts.set(entry.judgement.technique, (counts.get(entry.judgement.technique) ?? 0) + 1);
+      }
+      const summary = [...counts.entries()]
+        .map(([technique, count]) => `${count} ${TECHNIQUE_LABELS[technique as CutTechnique].toLowerCase()}`)
+        .join(', ');
+      toast.success(`Removed ${clock(plannedSeconds)}`, `${summary}. Undo restores the original.`);
+    } else {
+      toast.success(`Removed ${clock(plannedSeconds)}`, 'Undo restores the original.');
+    }
+    setSmoothPlan(null);
     setOpen('music');
-  }, [sequence, plannedCuts, smoothing, apply, pauses.length, plannedSeconds, setAnalysis]);
+  }, [sequence, plannedCuts, smoothing, smoothPlan, apply, pauses.length, plannedSeconds, setAnalysis]);
 
   const smoothExisting = useCallback(() => {
     if (!sequence) return;
@@ -1079,12 +1157,59 @@ export function EditFlowPanel() {
               {clock(plannedSeconds)} ·{' '}
               {clock(Math.max(0, duration - plannedSeconds))} after
             </p>
-            <Button size="sm" variant="primary" className="mt-2 w-full justify-center" icon={<Scissors size={12} />} onClick={applyPlannedCuts}>
-              Apply {plannedCuts.length} cuts
-            </Button>
-            <p className="mt-1.5 text-2xs text-ink-3">
-              Smoothing: {SMOOTHING_STYLES.find((style) => style.id === smoothing)?.label}. Undo restores the original.
-            </p>
+            {smoothPlan ? (
+              <>
+                <EditPlanReview plan={smoothPlan} onSeek={seek} />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="mt-2 w-full justify-center"
+                  icon={<Scissors size={12} />}
+                  onClick={applyPlannedCuts}
+                >
+                  Apply {plannedCuts.length} cuts
+                </Button>
+                <p className="mt-1.5 text-2xs text-ink-3">Undo restores the original.</p>
+              </>
+            ) : (
+              <>
+                <div className="mt-2 flex gap-1">
+                  {EDIT_STYLES.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      title={option.blurb}
+                      onClick={() => setEditing(option.id)}
+                      className={cn(
+                        'flex-1 rounded border px-1 py-1 text-2xs',
+                        editing === option.id
+                          ? 'border-accent bg-accent/10 text-ink-0'
+                          : 'border-line text-ink-2 hover:text-ink-0',
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-2xs leading-relaxed text-ink-3">
+                  {EDIT_STYLES.find((option) => option.id === editing)?.blurb}
+                </p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="mt-2 w-full justify-center"
+                  icon={<Scissors size={12} />}
+                  loading={busy === 'plan'}
+                  onClick={() => void planCuts()}
+                >
+                  Plan how each cut is handled
+                </Button>
+                {planNote ? <p className="mt-1 text-2xs text-ink-3">{planNote}</p> : null}
+                <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+                  Reads the frames either side of every cut and decides each one on its own. Most cuts need nothing.
+                </p>
+              </>
+            )}
           </div>
         ) : null}
 
@@ -1701,6 +1826,91 @@ function TemplatePreview({
       {profile.caveats.length > 0 ? (
         <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">{profile.caveats.join(' ')}</p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The edit plan, cut by cut.
+ *
+ * The number worth looking at first is how many cuts were left alone: a plan
+ * that treats every seam is a plan that has not understood the footage. Each
+ * entry shows what was measured, what was decided and why, so a decision can be
+ * argued with rather than taken on trust.
+ */
+function EditPlanReview({ plan, onSeek }: { plan: SmoothPlan; onSeek: (time: number) => void }) {
+  const counts = new Map<CutTechnique, number>();
+  for (const entry of plan.entries) {
+    counts.set(entry.judgement.technique, (counts.get(entry.judgement.technique) ?? 0) + 1);
+  }
+
+  const tone = (technique: CutTechnique) =>
+    technique === 'clean'
+      ? 'bg-ok/15 text-ok'
+      : technique === 'broll'
+        ? 'bg-accent/20 text-accent'
+        : 'bg-bg-3 text-ink-2';
+
+  return (
+    <div className="mt-2 rounded-md border border-line bg-bg-1 p-2">
+      <p className="text-2xs font-semibold text-ink-0">
+        {plan.untouched} of {plan.entries.length} joins need nothing
+      </p>
+      <p className="mt-0.5 text-2xs leading-relaxed text-ink-3">
+        {[...counts.entries()]
+          .filter(([technique]) => technique !== 'clean')
+          .map(([technique, count]) => `${count} ${TECHNIQUE_LABELS[technique].toLowerCase()}`)
+          .join(' · ') || 'Nothing needed anywhere — every join already reads as clean.'}
+      </p>
+      {plan.visualBlind ? (
+        <p className="mt-1 text-2xs leading-relaxed text-warn">
+          No frames could be read from this media, so the picture side of each cut was not measured. The decisions
+          below come from the audio and the transcript alone.
+        </p>
+      ) : null}
+
+      <ul className="mt-1.5 max-h-64 space-y-1 overflow-y-auto">
+        {plan.entries.map((entry) => (
+          <li key={entry.judgement.id} className="rounded border border-line/70 bg-bg-2 p-1.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                  tone(entry.judgement.technique),
+                )}
+              >
+                {TECHNIQUE_LABELS[entry.judgement.technique]}
+              </span>
+              <button
+                type="button"
+                onClick={() => onSeek(Math.max(0, entry.judgement.time - 0.6))}
+                className="font-mono text-2xs text-ink-3 hover:text-accent"
+                title="Play across this cut"
+              >
+                {clock(entry.judgement.time)}
+              </button>
+              <span className="ml-auto text-[9px] uppercase tracking-wide text-ink-3">
+                {Math.round(entry.judgement.noticeability * 100)}
+                {entry.judgement.technique === 'clean'
+                  ? ''
+                  : ` → ${Math.round(entry.judgement.residual * 100)}`}
+              </span>
+            </div>
+            <p className="mt-0.5 text-2xs leading-relaxed text-ink-3">{entry.judgement.reason}</p>
+          </li>
+        ))}
+      </ul>
+
+      {plan.skipped.length > 0 ? (
+        <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+          {plan.skipped.length} {plan.skipped.length === 1 ? 'cut needs' : 'cuts need'} something this step cannot do
+          on its own — see the reasons above.
+        </p>
+      ) : null}
+      <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+        The number on the right is how obvious each join is out of 100, before and after. Lower is better. Joins
+        between separate recordings are judged here too, not just the ones these cuts create.
+      </p>
     </div>
   );
 }

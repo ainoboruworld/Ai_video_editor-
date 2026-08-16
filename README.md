@@ -39,7 +39,8 @@ any of them at any time.
 | Unnecessary-line detection: repeats, false starts, corrections, rambling, tangents | Working, no key needed |
 | Pause trimming that leaves a beat behind, on a natural-to-aggressive slider | Working, no key needed |
 | Cut review before anything is applied, as one undoable edit | Working |
-| Cut smoothing: a short cross-dissolve built from the footage each cut removed | Working |
+| Every cut judged on its own footage — clean cut, crossfade, punch-in, dissolve, J/L cut or B-roll | Working, no key needed |
+| Editing style: conservative / natural / dynamic | Working, no key needed |
 | Reference video analysed for its editing style, applied at low/medium/high | Working, no key needed |
 | Background music with automatic ducking under detected speech | Working, no key needed |
 | B-roll suggested from what the speaker said, added only when you add it | Working (needs a free Pexels or Pixabay key) |
