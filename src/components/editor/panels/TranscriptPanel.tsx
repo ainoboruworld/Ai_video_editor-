@@ -50,6 +50,7 @@ import {
   type CutTransitionChoice,
 } from '@/features/ai/cutTransitions';
 import { DEFAULT_SEAM_OPTION, SEAM_OPTIONS, seamOption } from '@/features/edit/smoothing';
+import { coalesceCuts } from '@/features/edit/coalesce';
 import { ProviderPicker } from '@/components/editor/ProviderPicker';
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration } from '@/lib/engine';
@@ -508,13 +509,18 @@ export function TranscriptPanel() {
                   toast.error('No video on the timeline to cut');
                   return;
                 }
-                const cuts = proposalCuts(proposal)
+                const mapped = proposalCuts(proposal)
                   .map((cut) => {
                     const localStart = (cut.start - primary.clip.sourceIn) / primary.clip.speed + primary.clip.start;
                     const localEnd = (cut.end - primary.clip.sourceIn) / primary.clip.speed + primary.clip.start;
                     return { start: localStart, end: localEnd };
                   })
                   .filter((cut) => cut.end > cut.start);
+                // A recut proposes spans independently, so two of them can land
+                // a fraction of a second apart and leave a sliver between them
+                // that reads as a glitch. Run the cut through anything too
+                // short to be a shot, or that only holds leftover grammar.
+                const { cuts, swallowed } = coalesceCuts({ cuts: mapped, segments });
 
                 const choice = seamOption(seam);
                 const plan = {
@@ -541,9 +547,13 @@ export function TranscriptPanel() {
                       : decorated > 0
                         ? `${cutTransitionLabel(choice.transition)} on ${decorated} ${decorated === 1 ? 'join' : 'joins'}.`
                         : '';
+                const swallowNote =
+                  swallowed.length > 0
+                    ? `${swallowed.length} ${swallowed.length === 1 ? 'fragment' : 'fragments'} between cuts swallowed too. `
+                    : '';
                 toast.success(
                   `Removed ${clock(proposal.removedSeconds)}`,
-                  `${seamNote}${seamNote ? ' ' : ''}Undo restores the original.`,
+                  `${seamNote}${seamNote ? ' ' : ''}${swallowNote}Undo restores the original.`,
                 );
                 setProposal(null);
                 setAnalysis(null);

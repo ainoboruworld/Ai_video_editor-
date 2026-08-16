@@ -331,6 +331,33 @@ of the *middle* so both phrases keep air around them, and always leaves a beat.
 The slider runs from "cuts pauses over 2.0s, leaving 0.45s" to "over 0.28s,
 leaving 0.08s", and defaults near the conservative end.
 
+### Two cuts that nearly touch become one
+
+Cuts are proposed independently — a filler here, a pause there, a false start
+next to both — so two of them can land a fraction of a second apart and leave a
+sliver of footage between them. A quarter-second fragment is not a shot. It is a
+flash of a frame or two that reads as a glitch, and it costs *two* joins instead
+of one. A human editor faced with that runs the cut straight through it.
+
+`features/edit/coalesce.ts` does the same, but only when the phrase in the gap is
+not needed — that qualifier is the whole feature:
+
+| Gap between the cuts | What happens |
+| --- | --- |
+| Under 250 ms | Always swallowed. No word fits, and nothing that does is worth two joins. |
+| 250 ms – 600 ms | Swallowed *only* if the words in it are disposable — a stranded filler, a lone article, the leftover grammar of a sentence that no longer exists either side of it. |
+| Over 600 ms | Never touched. That is real speech, and it is the user's to decide about. |
+
+The text in the gap is read from word timings where the transcript carries them
+and interpolated by character position where it does not — enough to tell "and"
+from a clause, which is all this decision needs.
+
+Nothing is swallowed silently. Every fragment is listed in the plan with the
+reason and a timestamp that jumps the playhead there, because quietly removing
+speech the user never ticked is what makes an editor stop trusting a tool. The
+same pass runs on the AI Recut and Smart Auto-Cut proposals, which is where the
+problem showed up first: a real run left a 0.08-second clip on the timeline.
+
 ### Every cut judged on its own
 
 The version this replaces applied one technique to every seam, which is the one

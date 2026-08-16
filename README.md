@@ -40,6 +40,7 @@ any of them at any time.
 | Pause trimming that leaves a beat behind, on a natural-to-aggressive slider | Working, no key needed |
 | Cut review before anything is applied, as one undoable edit | Working |
 | Every cut judged on its own footage — clean cut, crossfade, punch-in, dissolve, J/L cut or B-roll | Working, no key needed |
+| Cuts that nearly touch merged, so no unusable sliver survives between them | Working, no key needed |
 | Editing style: conservative / natural / dynamic | Working, no key needed |
 | Reference video analysed for its editing style, applied at low/medium/high | Working, no key needed |
 | Background music with automatic ducking under detected speech | Working, no key needed |
