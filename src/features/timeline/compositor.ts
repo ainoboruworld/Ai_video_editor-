@@ -368,7 +368,10 @@ function graphicLines(
   const lines: GraphicLine[] = [];
   const label = `700 ${Math.round(26 * scale)}px Inter, system-ui, sans-serif`;
   const body = `600 ${Math.round(32 * scale)}px Inter, system-ui, sans-serif`;
-  const headline = `800 ${Math.round(graphic.kind === 'quote' ? 46 : 96) * scale}px Inter, system-ui, sans-serif`;
+  // A citation and a pull-quote are read as sentences; a stat is read as a
+  // number, which is why only the stat gets display size.
+  const headlineSize = graphic.kind === 'quote' ? 46 : graphic.kind === 'citation' ? 40 : 96;
+  const headline = `800 ${Math.round(headlineSize * scale)}px Inter, system-ui, sans-serif`;
 
   if (graphic.title.trim()) {
     ctx.font = label;
@@ -380,8 +383,9 @@ function graphicLines(
   if (graphic.value.trim()) {
     ctx.font = headline;
     const value = graphic.kind === 'quote' ? `“${graphic.value}”` : graphic.value;
+    const lineHeight = graphic.kind === 'quote' ? 60 : graphic.kind === 'citation' ? 54 : 112;
     for (const text of wrapLines(ctx, value, maxWidth)) {
-      lines.push({ text, font: headline, color: '#ffffff', height: (graphic.kind === 'quote' ? 60 : 112) * scale });
+      lines.push({ text, font: headline, color: '#ffffff', height: lineHeight * scale });
     }
   }
 

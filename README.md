@@ -43,6 +43,7 @@ any of them at any time.
 | Captions built from the final transcript, no second transcription request | Working |
 | Caption colours — text, highlight, outline and box, on top of any preset | Working, no key needed |
 | Infographics drawn on the frame — stats, lists and pull-quotes, suggested from the transcript | Working, no key needed |
+| News citations for the claims you make — headline, publisher and date, drawn on the frame | Working, no key needed |
 | Export in the browser (canvas + audio → downloadable file) | Working, no external service |
 | Cloud render with Remotion (frame-accurate H.264) | Working, needs a worker host (`RENDER_WORKER_URL`) |
 | Uploads straight to object storage | Working, needs S3-compatible storage |

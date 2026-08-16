@@ -159,7 +159,11 @@ export function TranscriptPanel() {
             onSelect={() => setSource('local')}
             icon={<Cpu size={12} />}
             title="Local Whisper"
-            note={localSupported ? 'Runs in this browser. Free, private, no quota.' : 'Not supported by this browser.'}
+            note={
+              localSupported
+                ? 'Runs in this browser. Free, private, no quota — but it tidies out filler words.'
+                : 'Not supported by this browser.'
+            }
             disabled={!localSupported}
           />
           <SourceOption
@@ -170,12 +174,18 @@ export function TranscriptPanel() {
             title="Hosted"
             note={
               hostedReady
-                ? `Uses ${capabilities?.transcription.provider ?? 'your provider'}. Fast, word-level timings.`
+                ? `Uses ${capabilities?.transcription.provider ?? 'your provider'}. Word-level timings, and asked for a verbatim transcript.`
                 : 'Needs a free GROQ_API_KEY.'
             }
             disabled={!hostedReady}
           />
         </div>
+
+        <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
+          Cutting fillers needs a transcript that still contains them. Whisper is trained to produce readable prose and
+          drops hesitations unless it is told not to; the hosted request asks for verbatim text, the in-browser model
+          has no way to be asked. If filler detection finds nothing, that is usually why.
+        </p>
 
         {/* ---- manual ---- */}
         {source === 'manual' ? (

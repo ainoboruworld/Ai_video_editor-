@@ -152,6 +152,28 @@ export interface MediaSearchResponse {
   query: string;
 }
 
+// ------------------------------------------------------------- news ---
+
+/**
+ * A news article used as a citation, never as footage.
+ *
+ * Metadata only — headline, publisher, date, link. Publisher photography is
+ * copyrighted, so nothing here carries an image URL: the citation is drawn by
+ * the compositor and imagery keeps coming from the licensed stock providers.
+ */
+export interface NewsArticle {
+  id: string;
+  title: string;
+  url: string;
+  /** Publisher host, e.g. "reuters.com". */
+  domain: string;
+  /** Publisher as a reader would name it, e.g. "Reuters". */
+  source: string;
+  /** ISO timestamp, or null when the index did not give a usable one. */
+  publishedAt: string | null;
+  language: string | null;
+}
+
 // ------------------------------------------------------------------- AI ----
 
 export type AiProviderName =

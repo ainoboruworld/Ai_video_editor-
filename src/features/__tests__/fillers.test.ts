@@ -143,3 +143,51 @@ describe('candidate identity', () => {
     expect(found.filter((c) => decisions[c.id]).length).toBe(found.length);
   });
 });
+
+describe('a verbatim transcript', () => {
+  it('catches the spellings transcribers actually produce', () => {
+    for (const text of ['So uhm, we shipped it.', 'And ehm, that was that.', 'Well hm, maybe not.']) {
+      const found = detectFillerCandidates({ segments: [segment(text)] });
+      expect(found.some((f) => f.confidence === 'high')).toBe(true);
+    }
+  });
+
+  it('leaves the lookalikes that carry meaning', () => {
+    // "uh-huh" means yes and "huh" asks a question — cutting either changes
+    // what the speaker said.
+    for (const text of ['Uh-huh, that is right.', 'Huh? Say that again.', 'Mm-hmm, exactly.']) {
+      const found = detectFillerCandidates({ segments: [segment(text)] });
+      expect(found.filter((f) => f.confidence === 'high')).toHaveLength(0);
+    }
+  });
+
+  it('offers the first half of a repeated word', () => {
+    const found = detectFillerCandidates({ segments: [segment('We we should ship it today.', 0, 4)] });
+    const stumble = found.find((f) => f.reason === 'Repeated word');
+    expect(stumble).toBeDefined();
+    // The second "we" has to survive — it is the start of the real sentence.
+    expect(stumble!.charStart).toBe(0);
+    expect(stumble!.charEnd).toBeLessThan('We we'.length + 1);
+  });
+
+  it('does not touch a repetition the speaker meant', () => {
+    for (const text of ['No, no, that is wrong.', 'It was very, very good.']) {
+      const found = detectFillerCandidates({ segments: [segment(text)] });
+      expect(found.filter((f) => f.reason === 'Repeated word')).toHaveLength(0);
+    }
+  });
+
+  it('ignores single-letter repeats, which are usually mishearings', () => {
+    const found = detectFillerCandidates({ segments: [segment('I I think a a plan is needed.')] });
+    expect(found.filter((f) => f.reason === 'Repeated word')).toHaveLength(0);
+  });
+
+  it('keeps stutters and word fillers in one ordered list', () => {
+    const found = detectFillerCandidates({
+      segments: [segment('Um, we we thought it was, like, fine.', 0, 6)],
+    });
+    const starts = found.map((f) => f.charStart);
+    expect([...starts].sort((a, b) => a - b)).toEqual(starts);
+    expect(found.map((f) => f.reason)).toContain('Repeated word');
+  });
+});

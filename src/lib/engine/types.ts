@@ -129,7 +129,7 @@ export interface CaptionColors {
   stroke?: string | null;
 }
 
-export type GraphicKind = 'stat' | 'list' | 'quote';
+export type GraphicKind = 'stat' | 'list' | 'quote' | 'citation';
 
 /**
  * An on-screen graphic: the number, the list or the pull-quote a talking head
