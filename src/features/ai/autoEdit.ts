@@ -169,6 +169,66 @@ export async function analysePrimaryClip(signal?: AbortSignal): Promise<Analysis
 }
 
 /**
+ * Analyses every clip on the video track and stitches the result into one
+ * timeline-time envelope.
+ *
+ * With several recordings in a project, "the primary clip" stops being a
+ * useful idea: a pause between two sentences in clip three is as worth cutting
+ * as one in clip one. Each clip's own audio is measured over exactly the span
+ * that clip uses — its trim and its speed — and written into the envelope at
+ * the position it occupies on the timeline. Everything downstream then works in
+ * timeline seconds and never has to know which file a moment came from.
+ *
+ * Gaps between clips are left as silence, which is what they are.
+ */
+export async function analyseTimeline(signal?: AbortSignal): Promise<AnalysisResult> {
+  const state = useEditorStore.getState();
+  const sequence = state.sequence;
+  if (!sequence) throw new Error('No project loaded.');
+
+  const { orderedClips } = await import('@/features/edit/clips');
+  const entries = orderedClips(sequence).filter((entry) => entry.clip.kind === 'video');
+  if (entries.length === 0) throw new Error('Add your video to the timeline first.');
+
+  const { analyseLoudness } = await import('@/features/analysis/audioAnalysis');
+
+  const WINDOW = 0.02;
+  const timelineEnd = Math.max(...entries.map((entry) => entry.start + entry.duration));
+  const values = new Float32Array(Math.ceil(timelineEnd / WINDOW) + 1);
+  let peak = 0;
+
+  for (const entry of entries) {
+    const asset = state.assets.find((a) => a.id === entry.clip.assetId);
+    if (!asset) continue;
+    signal?.throwIfAborted();
+
+    const envelope = await analyseLoudness(asset.url, WINDOW, signal);
+    const clip = entry.clip;
+
+    // Walk this clip's span of the timeline and read the source window that
+    // plays at each point, which is what makes a trimmed or sped-up clip line
+    // up with the picture instead of drifting against it.
+    const windows = Math.ceil(clip.duration / WINDOW);
+    for (let i = 0; i < windows; i += 1) {
+      const timelineTime = clip.start + i * WINDOW;
+      const sourceTime = clip.sourceIn + i * WINDOW * clip.speed;
+      const sourceIndex = Math.floor(sourceTime / envelope.windowSeconds);
+      const value = envelope.values[sourceIndex] ?? 0;
+      const target = Math.floor(timelineTime / WINDOW);
+      if (target >= 0 && target < values.length) {
+        values[target] = value;
+        if (value > peak) peak = value;
+      }
+    }
+  }
+
+  const envelope = { values, windowSeconds: WINDOW, duration: timelineEnd, peak };
+  const silences = detectSilences(envelope);
+  const speech = speechRanges(envelope, silences);
+  return { envelope, silences, speech, removableSeconds: totalDuration(silences) };
+}
+
+/**
  * Applies a cut plan as one undoable edit.
  *
  * When the plan carries a transition, the seams it creates are decorated in the

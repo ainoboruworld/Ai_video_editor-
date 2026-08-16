@@ -57,7 +57,7 @@ interface EditorState {
    * is persisted: the envelope is derived from media that is already saved.
    */
   audioAnalysis: AudioAnalysis | null;
-  fillerDecisions: Record<string, boolean>;
+  cutDecisions: Record<string, boolean>;
   capabilities: AiCapabilities | null;
 
   history: EditorHistory;
@@ -92,8 +92,8 @@ interface EditorState {
   removeAsset: (assetId: string) => void;
   setTranscript: (transcript: StoredTranscript | null) => void;
   setAudioAnalysis: (analysis: AudioAnalysis | null) => void;
-  setFillerDecision: (id: string, accepted: boolean) => void;
-  setFillerDecisions: (decisions: Record<string, boolean>) => void;
+  setCutDecision: (id: string, accepted: boolean) => void;
+  setCutDecisions: (decisions: Record<string, boolean>) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,7 +111,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   assets: [],
   transcript: null,
   audioAnalysis: null,
-  fillerDecisions: {},
+  cutDecisions: {},
   capabilities: null,
 
   history: new EditorHistory(),
@@ -247,10 +247,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setAudioAnalysis: (analysis) => set({ audioAnalysis: analysis }),
 
-  setFillerDecision: (id, accepted) =>
-    set((state) => ({ fillerDecisions: { ...state.fillerDecisions, [id]: accepted } })),
+  setCutDecision: (id, accepted) =>
+    set((state) => ({ cutDecisions: { ...state.cutDecisions, [id]: accepted } })),
 
-  setFillerDecisions: (decisions) => set({ fillerDecisions: decisions }),
+  setCutDecisions: (decisions) => set({ cutDecisions: decisions }),
 
 }));
 

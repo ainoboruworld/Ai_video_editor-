@@ -5,12 +5,17 @@ path, and the passes that matter most — filler detection, pause trimming, cut
 smoothing, ducking, captions — run locally with no provider at all.
 
 ```
-your recording
+your clips (one, or several in running order)
   └─► browser audio analysis   → loudness envelope, silences, speech ranges
+        (measured across the whole timeline, not one "primary" clip)
         └─► transcript          → local Whisper | hosted Whisper | pasted by hand
               └─► filler + pause detection (local, no key)
+              └─► unnecessary-line detection: repeats, false starts,
+                    corrections, restatements, rambling, marked tangents
                     └─► cut review → user approves → timeline commands
-                          └─► /api/ai/broll → what was said → queries
+                          └─► reference video (optional) → measured style profile → applied at
+        low / medium / high intensity
+  └─► /api/ai/broll → what was said → queries
                                 → Pexels / Pixabay / Unsplash → ranked, never
                                   auto-inserted
               └─► /api/news → claims made → GDELT → headline + publisher +
@@ -133,6 +138,113 @@ with "The Guardian", and results are capped at two per outlet — six articles
 from one paper is a worse resource than six papers. Nothing is placed until the
 user clicks **Cite at 0:00**, and a citation is a normal clip afterwards: retime
 it, restyle it, delete it.
+
+## Several clips as one edit
+
+A talking-head video is rarely one take. `features/edit/clips.ts` treats every
+recording on the video track as part of one continuous piece: they are appended
+in running order, butt-joined, and reordered by dragging — one batch of
+`MOVE_CLIP`s, so undo takes a reorder back in a single step and every clip keeps
+its own id, trim and transitions.
+
+Nothing downstream had to learn about clips, because the analysis moved instead.
+`analyseTimeline` measures each clip's audio over exactly the span that clip
+uses — its trim and its speed — and writes the result into one envelope at the
+position it occupies on the timeline. Silences and speech ranges therefore come
+back in *timeline* seconds, so a pause inside the fourth take is found the same
+way as one inside the first, and no per-clip mapping is needed anywhere.
+
+### A join is not a seam
+
+Two boundaries look identical on the timeline and need opposite treatment.
+
+A **seam** is what a ripple delete leaves inside one recording. Both sides come
+from the same file, so cut smoothing can dissolve through the footage the cut
+removed — which is what makes it invisible.
+
+A **join** is where two different recordings meet. There is no removed footage to
+blend through and the two sides genuinely are different shots, so the treatment
+is a 40 ms audio fade on each side (which removes the click of two unrelated
+waveforms being spliced) and, optionally, a quarter-second dissolve on the
+incoming clip. Never on the first clip's head or the last clip's tail: those are
+the start and end of the video.
+
+`isJoin` distinguishes them by asset alone. A ripple delete produces two clips of
+one file whose source times are *also* discontinuous — geometrically identical to
+a deliberate splice of that file — so the two cannot be told apart, and both are
+left to cut smoothing, which is the better treatment for either.
+
+## Unnecessary lines
+
+Filler detection handles sounds and hedge words. `features/edit/smartCuts.ts`
+handles the larger mistakes in a take, and returns a verdict rather than a
+deletion:
+
+| Detected | How | Verdict |
+| --- | --- | --- |
+| Repeated sentence | ≥80% word overlap with a later segment | **Remove** when the copies are adjacent (a retake — the earlier one goes); **Review** when they are far apart, because that is a deliberate recap |
+| False start | A phrase restarted inside one segment, or an unfinished segment the next one restarts with the same words | **Remove** — only the abandoned attempt |
+| Correction | "let me start again", "scratch that", "take two" | **Remove**; a bare "sorry" or "wait" is **Review** |
+| Redundant | High containment against the previous sentence, or an explicit restater ("in other words") | **Review** |
+| Rambling | A run over 12s whose content words are ≥70% ones already used in the last minute | **Review** |
+| Off topic | A span between the speaker's own markers ("side note" … "anyway") whose vocabulary has drifted from the video's | **Review** |
+
+Three rules shape all of it. Nothing is decided by word matching alone — "sorry"
+is a correction before a restart and an apology otherwise. **Uncertainty becomes
+REVIEW, never REMOVE**, so only confident removals arrive pre-ticked and nobody's
+sentences are cut on a statistic. And every candidate carries a real span of
+recording, measured from word timings where the transcript has them and
+interpolated (and labelled estimated) where it does not.
+
+Detectors overlap by design, so the results are deduplicated by span with the
+more certain verdict winning — otherwise rejecting one entry could be silently
+undone by another covering the same seconds.
+
+## Reference videos
+
+A template is not a project to copy. Copying a reference's media would be taking
+someone else's footage; what `features/template` takes is a description of *how*
+it was cut, measured off the file in the browser and never uploaded.
+
+`analyse.ts` seeks a `<video>` and paints 8 frames a second onto a 160-pixel
+canvas:
+
+| Measured | From |
+| --- | --- |
+| Cut frequency, average and median shot, evenness | Frame-to-frame mean absolute difference above a threshold |
+| Hard cut vs dissolve vs dip | Whether the change is one sample or several, and whether the frame passes through black or white on the way |
+| Motion energy | Mean change *within* shots — a locked-off talking head reads near zero |
+| Caption band and coverage | Steep horizontal edge energy per third of frame, that also keeps turning over; lettering has hard edges, a face does not, and a static logo never changes |
+| Music bed level | The loudness floor between phrases — with nothing else sounding, that floor *is* the bed |
+| Intro / outro | Speechless head and tail |
+
+The limits are stated on every profile rather than hidden. Sampling at 8 fps
+means a join shorter than 125 ms reads as a hard cut. And **how far a reference
+ducks its music is not measurable at all**: music and speech are summed into one
+waveform, so the level during speech is the speech. The bed level is measured and
+this editor's own ducking curve is applied at that level, which the profile says
+in as many words.
+
+### Applying it
+
+`apply.ts` returns a plan before it changes anything: pause-trim aggression
+mapped from the reference's average shot length, hard or dissolved seams, join
+treatment, a caption preset for the measured band, and music at the measured bed
+level. Intensity is one weight over all of it — Low moves a third of the way from
+where the project is now to where the reference sits, High goes all the way — so
+"Low" means the same thing everywhere instead of a different rule per setting.
+
+What it refuses to do is listed with equal weight in the panel:
+
+- it will not dip through black at a cut, even when the reference does, because
+  dipping mid-sentence in a talking head reads as an error;
+- it will not delete captions merely because the reference has none;
+- it will not add an intro, because an intro is content rather than style;
+- it copies none of the reference's footage, music or graphics.
+
+Profiles are a few hundred bytes of numbers, so they live in `localStorage`:
+measure a reference once, apply its style to every project in that browser, no
+account and no server.
 
 ## The edit itself
 

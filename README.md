@@ -32,12 +32,15 @@ any of them at any time.
 | Canvas compositor: crop, cover-fit, scale, rotate, opacity, filters, transitions, text, captions | Working |
 | Real playback with A/V sync and a Web Audio mix (clip volume, fades, mute/solo) | Working |
 | Undo/redo over a command engine, keyboard shortcuts, autosave + crash recovery | Working |
+| Several clips edited as one continuous video, drag to reorder | Working, no key needed |
 | Transcript from a local model, a hosted provider, or pasted by hand | Working (manual paste needs nothing) |
 | Transcript ↔ timeline sync: click a line, the playhead goes there | Working |
 | Context-aware filler detection, highlighted in place, accept or reject each one | Working, no key needed |
+| Unnecessary-line detection: repeats, false starts, corrections, rambling, tangents | Working, no key needed |
 | Pause trimming that leaves a beat behind, on a natural-to-aggressive slider | Working, no key needed |
 | Cut review before anything is applied, as one undoable edit | Working |
 | Cut smoothing: a short cross-dissolve built from the footage each cut removed | Working |
+| Reference video analysed for its editing style, applied at low/medium/high | Working, no key needed |
 | Background music with automatic ducking under detected speech | Working, no key needed |
 | B-roll suggested from what the speaker said, added only when you add it | Working (needs a free Pexels or Pixabay key) |
 | Captions built from the final transcript, no second transcription request | Working |
