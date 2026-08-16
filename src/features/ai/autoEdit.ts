@@ -24,6 +24,7 @@ import {
   type TranscriptWord,
 } from '@/features/analysis/audioAnalysis';
 import { countSeams, cutTransitionCommands, type CutTransitionChoice } from '@/features/ai/cutTransitions';
+import { smoothingCommands, type SmoothingStyle } from '@/features/edit/smoothing';
 import { newId } from '@/features/broll/assemble';
 import { api } from '@/lib/api-client';
 import { trackByRole, type CaptionStyleName, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
@@ -39,8 +40,16 @@ export interface CutPlan {
   cuts: Range[];
   removedSeconds: number;
   label: string;
-  /** What to put on the joins the cuts leave behind. Omitted means hard cuts. */
+  /** A visible transition on the joins the cuts leave behind. */
   transition?: CutTransitionChoice;
+  /**
+   * Invisible smoothing on those joins instead.
+   *
+   * Mutually exclusive with `transition`: one extends the outgoing clip into
+   * the removed footage and the other ramps opacity across it, so stacking them
+   * on one seam produces a visible mess. Smoothing wins when both are set.
+   */
+  smoothing?: SmoothingStyle;
 }
 
 /**
@@ -242,11 +251,46 @@ export function applyCutPlan(plan: CutPlan): boolean {
   if (!sequence) return false;
 
   const cutCommands = cutsToCommands(plan.cuts);
-  const transitions = plan.transition
-    ? cutTransitionCommands({ sequence, cutCommands, cuts: plan.cuts, choice: plan.transition })
-    : [];
+  const decoration = seamCommands(sequence, cutCommands, plan);
 
-  return state.apply([...cutCommands, ...transitions], plan.label);
+  return state.apply([...cutCommands, ...decoration], plan.label);
+}
+
+/**
+ * Whatever goes on the seams: invisible smoothing, or a visible transition.
+ *
+ * Smoothing takes precedence when both are set, because it is the one that
+ * cannot share a seam — it retimes the outgoing clip, which a transition
+ * layered on top would then ramp across the wrong frames.
+ */
+function seamCommands(sequence: Sequence, cutCommands: EditorCommand[], plan: CutPlan): EditorCommand[] {
+  if (plan.smoothing && plan.smoothing !== 'none') {
+    return smoothingCommands({ sequence, cutCommands, cuts: plan.cuts, style: plan.smoothing }).commands;
+  }
+  if (plan.transition) {
+    return cutTransitionCommands({ sequence, cutCommands, cuts: plan.cuts, choice: plan.transition });
+  }
+  return [];
+}
+
+/**
+ * How many seams a plan would smooth, and how many get a real dissolve.
+ *
+ * Counted before the edit, because afterwards a smoothed seam is
+ * indistinguishable from a join that was already there.
+ */
+export function countPlanSmoothing(plan: CutPlan): { seams: number; dissolved: number } {
+  const sequence = useEditorStore.getState().sequence;
+  if (!sequence || !plan.smoothing || plan.smoothing === 'none' || plan.cuts.length === 0) {
+    return { seams: 0, dissolved: 0 };
+  }
+  const { seams, dissolved } = smoothingCommands({
+    sequence,
+    cutCommands: cutsToCommands(plan.cuts),
+    cuts: plan.cuts,
+    style: plan.smoothing,
+  });
+  return { seams, dissolved };
 }
 
 /** How many seams a plan's transition would land on, for messaging before the edit. */

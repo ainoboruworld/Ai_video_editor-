@@ -6,20 +6,21 @@ smoothing, ducking, captions — run locally with no provider at all.
 
 ```
 your clips (one, or several in running order)
-  └─► browser audio analysis   → loudness envelope, silences, speech ranges
-        (measured across the whole timeline, not one "primary" clip)
-        └─► transcript          → local Whisper | hosted Whisper | pasted by hand
-              └─► filler + pause detection (local, no key)
-              └─► unnecessary-line detection: repeats, false starts,
-                    corrections, restatements, rambling, marked tangents
-                    └─► cut review → user approves → timeline commands
-                          └─► reference video (optional) → measured style profile → applied at
-        low / medium / high intensity
-  └─► /api/ai/broll → what was said → queries
-                                → Pexels / Pixabay / Unsplash → ranked, never
-                                  auto-inserted
-              └─► /api/news → claims made → GDELT → headline + publisher +
-                    date → citation graphic, never a publisher image
+  └─► browser audio analysis  → loudness envelope, silences, speech ranges
+        measured across the whole timeline, not one "primary" clip
+        └─► transcript  → local Whisper | hosted Whisper | pasted by hand
+              ├─► filler + pause detection (local, no key)
+              ├─► unnecessary lines: repeats, false starts, corrections,
+              │     restatements, rambling, marked tangents
+              │     └─► cut review → user approves → timeline commands
+              │           └─► invisible smoothing across the removed footage
+              ├─► /api/ai/broll → what was said → queries
+              │     └─► Pexels / Pixabay / Unsplash → ranked, never auto-inserted
+              └─► /api/news → claims made → GDELT → headline + publisher + date
+                    └─► citation graphic, never a publisher image
+
+reference video (optional)
+  └─► measured style profile → applied at low / medium / high intensity
 ```
 
 The one optional model-driven edit is **AI Recut** (`/api/ai/edit`), which reads
@@ -405,12 +406,25 @@ actually survive; a cut running off either end of the timeline has only one side
 and is left alone, and a transition never takes more than 40% of the clip it
 sits on.
 
-Cross-dissolve is deliberately **not** offered here. Both sides of a recut seam
-come from the same source file and the media pool holds one element per asset,
-so there is no second decode to blend against — a "cross-dissolve" would be a
-dip wearing the wrong name. The kinds that are offered each do what they say:
-the opacity ramp applies to fades and dips, while slide, zoom and blur stay
-fully opaque and carry their own motion.
+An earlier version of this file said a cross-dissolve could not be offered here,
+because both sides of a recut seam come from one file and the media pool held one
+element per asset — so there was no second decode to blend against. That stopped
+being true when the pool became slot-keyed, and the invisible smoothing described
+above is now available at recut seams as well as at the guided flow's cuts.
+
+So the choice is **one control, not two**. Smoothing and a decorative transition
+cannot share a seam: smoothing extends the outgoing clip forward into the removed
+footage, and a transition layered on top would ramp opacity across the wrong
+frames. `SEAM_OPTIONS` therefore lists both families together — Invisible (the
+default), Audio only, Hard cut, then fade, dip, flash, blur, slide and zoom —
+and every entry sets exactly one of them. Applying picks the same way:
+`applyCutPlan` runs the smoothing when the plan asks for it and the transition
+otherwise, in the same undoable batch as the cuts.
+
+The decorative kinds still do what they say: the opacity ramp applies to fades
+and dips, while slide, zoom and blur stay fully opaque and carry their own
+motion. They are simply no longer the only thing on offer, and no longer the
+default — the default is the one the viewer does not notice.
 
 Two safeguards matter here:
 

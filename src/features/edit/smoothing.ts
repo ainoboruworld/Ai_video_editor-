@@ -24,7 +24,7 @@
  * The extension is silenced with a volume envelope, so the removed "um" is seen
  * for a fraction of a second under a fading picture and never heard.
  */
-import { seamTimes } from '@/features/ai/cutTransitions';
+import { CUT_TRANSITIONS, seamTimes, type CutTransitionKind } from '@/features/ai/cutTransitions';
 import { applyCommand, type Clip, type EditorCommand, type Sequence } from '@/lib/engine';
 import { mergeRanges, type Range } from '@/features/analysis/audioAnalysis';
 
@@ -35,6 +35,57 @@ export const SMOOTHING_STYLES: { id: SmoothingStyle; label: string; description:
   { id: 'audio', label: 'Audio only', description: 'Removes the click, leaves the picture cutting hard.' },
   { id: 'none', label: 'Leave as is', description: 'Hard cuts, nothing added.' },
 ];
+
+/**
+ * Everything that can be put on a seam a cut leaves behind, in one list.
+ *
+ * Smoothing and a decorative transition cannot both own the same join — one
+ * extends the outgoing clip into the removed footage, the other ramps opacity
+ * across it, and stacking them produces a visible mess. So they are offered as
+ * a single choice rather than two controls that quietly fight.
+ *
+ * Invisible is first and is the default: for a recut of one recording it is
+ * almost always the right answer, and everything below it is a visible effect
+ * the viewer will notice.
+ */
+export interface SeamOption {
+  id: string;
+  label: string;
+  description: string;
+  smoothing: SmoothingStyle;
+  transition: CutTransitionKind;
+}
+
+export const SEAM_OPTIONS: SeamOption[] = [
+  {
+    id: 'invisible',
+    label: 'Invisible',
+    description: 'Cross-dissolve built from the footage the cut removed',
+    smoothing: 'dissolve',
+    transition: 'none',
+  },
+  {
+    id: 'audio',
+    label: 'Audio only',
+    description: 'Kills the click, picture cuts hard',
+    smoothing: 'audio',
+    transition: 'none',
+  },
+  { id: 'none', label: 'Hard cut', description: 'Leave the joins untouched', smoothing: 'none', transition: 'none' },
+  ...CUT_TRANSITIONS.filter((entry) => entry.kind !== 'none').map((entry) => ({
+    id: entry.kind,
+    label: entry.label,
+    description: entry.description,
+    smoothing: 'none' as SmoothingStyle,
+    transition: entry.kind,
+  })),
+];
+
+export const DEFAULT_SEAM_OPTION = SEAM_OPTIONS[0]!;
+
+export function seamOption(id: string): SeamOption {
+  return SEAM_OPTIONS.find((entry) => entry.id === id) ?? DEFAULT_SEAM_OPTION;
+}
 
 /** Long enough to hide a head jump, short enough not to read as an effect. */
 const DISSOLVE_SECONDS = 0.18;

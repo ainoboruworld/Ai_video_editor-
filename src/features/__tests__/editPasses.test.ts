@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_AGGRESSION, pauseCuts, pauseProfile } from '@/features/edit/pauses';
 import { duckingKeyframes, DUCKING_DEFAULTS } from '@/features/edit/ducking';
-import { smoothingCommands, smoothSeams } from '@/features/edit/smoothing';
+import {
+  DEFAULT_SEAM_OPTION,
+  SEAM_OPTIONS,
+  seamOption,
+  smoothingCommands,
+  smoothSeams,
+} from '@/features/edit/smoothing';
 import { workflowState } from '@/features/edit/workflow';
 import { applyCommand, makeClip, makeSequence, trackByRole, type Sequence } from '@/lib/engine';
 
@@ -258,5 +264,35 @@ describe('workflowState', () => {
     const state = workflowState({ sequence: null, transcriptSegments: 0, appliedCuts: 0, hasPauseCuts: false });
     expect(state.video.done).toBe(false);
     expect(state.video.detail).toBe('no video yet');
+  });
+});
+
+describe('the seam choice', () => {
+  it('offers invisible smoothing first, because it is the one nobody notices', () => {
+    expect(SEAM_OPTIONS[0]!.id).toBe('invisible');
+    expect(SEAM_OPTIONS[0]!.smoothing).toBe('dissolve');
+    expect(DEFAULT_SEAM_OPTION.id).toBe('invisible');
+  });
+
+  it('never lets one option ask for both smoothing and a transition', () => {
+    // They fight over the same seam: one retimes the outgoing clip, the other
+    // ramps opacity across it. Every option must pick a side.
+    for (const option of SEAM_OPTIONS) {
+      expect(option.smoothing === 'none' || option.transition === 'none').toBe(true);
+    }
+  });
+
+  it('still offers the visible transitions, each mapped to its engine kind', () => {
+    const decorative = SEAM_OPTIONS.filter((option) => option.transition !== 'none');
+    expect(decorative.length).toBeGreaterThan(3);
+    for (const option of decorative) {
+      expect(option.id).toBe(option.transition);
+      expect(option.smoothing).toBe('none');
+    }
+  });
+
+  it('falls back to invisible for an id it does not recognise', () => {
+    expect(seamOption('nonsense').id).toBe('invisible');
+    expect(seamOption('zoom').transition).toBe('zoom');
   });
 });

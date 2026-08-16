@@ -35,6 +35,7 @@ import {
   analysePrimaryClip,
   applyCaptions,
   applyCutPlan,
+  countPlanSmoothing,
   condenseCues,
   countPlanTransitions,
   primaryClip,
@@ -43,12 +44,12 @@ import {
 } from '@/features/ai/autoEdit';
 import { proposalCuts, proposalFromAi, smartAutoCut, type RecutProposal } from '@/features/ai/recut';
 import {
-  CUT_TRANSITIONS,
   DEFAULT_CUT_TRANSITION,
   MAX_TRANSITION_SECONDS,
   cutTransitionLabel,
   type CutTransitionChoice,
 } from '@/features/ai/cutTransitions';
+import { DEFAULT_SEAM_OPTION, SEAM_OPTIONS, seamOption } from '@/features/edit/smoothing';
 import { ProviderPicker } from '@/components/editor/ProviderPicker';
 import { api, ApiClientError } from '@/lib/api-client';
 import { sequenceDuration } from '@/lib/engine';
@@ -88,6 +89,8 @@ export function TranscriptPanel() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [proposal, setProposal] = useState<RecutProposal | null>(null);
+  // One choice drives both: a seam is either smoothed or decorated, never both.
+  const [seam, setSeam] = useState<string>(DEFAULT_SEAM_OPTION.id);
   const [transition, setTransition] = useState<CutTransitionChoice>(DEFAULT_CUT_TRANSITION);
   const [aiProvider, setAiProvider] = useState<AiProviderName | 'auto'>('auto');
   const [targetSeconds, setTargetSeconds] = useState<number | ''>('');
@@ -495,6 +498,8 @@ export function TranscriptPanel() {
           <div ref={proposalRef}>
             <ProposalReview
               proposal={proposal}
+              seam={seam}
+              onSeamChange={setSeam}
               transition={transition}
               onTransitionChange={setTransition}
               onCancel={() => setProposal(null)}
@@ -511,25 +516,34 @@ export function TranscriptPanel() {
                   })
                   .filter((cut) => cut.end > cut.start);
 
+                const choice = seamOption(seam);
                 const plan = {
                   cuts,
                   removedSeconds: proposal.removedSeconds,
                   label: proposal.origin === 'ai' ? 'AI recut' : 'Smart auto-cut',
-                  transition,
+                  smoothing: choice.smoothing,
+                  transition: choice.transition === 'none' ? undefined : { ...transition, kind: choice.transition },
                 };
-                // Counted before the edit, because afterwards the seams are
-                // indistinguishable from joins that were already there.
-                const seams = countPlanTransitions(plan);
+                // Counted before the edit, because afterwards a treated seam is
+                // indistinguishable from a join that was already there.
+                const smoothed = countPlanSmoothing(plan);
+                const decorated = countPlanTransitions(plan);
 
                 if (!applyCutPlan(plan)) {
                   toast.info('Nothing was cut', 'The proposal did not overlap the clip on the timeline.');
                   return;
                 }
+                const seamNote =
+                  smoothed.dissolved > 0
+                    ? `${smoothed.dissolved} ${smoothed.dissolved === 1 ? 'join' : 'joins'} dissolved through the removed footage.`
+                    : smoothed.seams > 0
+                      ? `${smoothed.seams} ${smoothed.seams === 1 ? 'join' : 'joins'} faded to kill the click.`
+                      : decorated > 0
+                        ? `${cutTransitionLabel(choice.transition)} on ${decorated} ${decorated === 1 ? 'join' : 'joins'}.`
+                        : '';
                 toast.success(
                   `Removed ${clock(proposal.removedSeconds)}`,
-                  seams > 0
-                    ? `${cutTransitionLabel(transition.kind)} on ${seams} ${seams === 1 ? 'join' : 'joins'}. Undo restores the original.`
-                    : 'Undo restores the original.',
+                  `${seamNote}${seamNote ? ' ' : ''}Undo restores the original.`,
                 );
                 setProposal(null);
                 setAnalysis(null);
@@ -694,12 +708,16 @@ function IconBtn({
 /** The proposal is shown in full before anything is cut. */
 function ProposalReview({
   proposal,
+  seam,
+  onSeamChange,
   transition,
   onTransitionChange,
   onApply,
   onCancel,
 }: {
   proposal: RecutProposal;
+  seam: string;
+  onSeamChange: (id: string) => void;
   transition: CutTransitionChoice;
   onTransitionChange: (choice: CutTransitionChoice) => void;
   onApply: () => void;
@@ -747,18 +765,16 @@ function ProposalReview({
 
       {/* ---- what to put on the joins the cuts leave behind ---- */}
       <div className="mt-2.5 border-t border-line pt-2.5">
-        <p className="mb-1.5 text-2xs uppercase tracking-wide text-ink-3">Transition at cuts</p>
+        <p className="mb-1.5 text-2xs uppercase tracking-wide text-ink-3">At each cut</p>
         <div className="grid grid-cols-2 gap-1">
-          {CUT_TRANSITIONS.map((option) => (
+          {SEAM_OPTIONS.map((option) => (
             <button
-              key={option.kind}
+              key={option.id}
               type="button"
-              onClick={() => onTransitionChange({ ...transition, kind: option.kind })}
+              onClick={() => onSeamChange(option.id)}
               className={cn(
                 'rounded-md border px-2 py-1.5 text-left transition-colors',
-                transition.kind === option.kind
-                  ? 'border-accent bg-accent-ghost'
-                  : 'border-line bg-bg-2 hover:border-line-strong',
+                seam === option.id ? 'border-accent bg-accent-ghost' : 'border-line bg-bg-2 hover:border-line-strong',
               )}
             >
               <span className="block text-2xs font-medium text-ink-0">{option.label}</span>
@@ -784,9 +800,13 @@ function ProposalReview({
         ) : null}
 
         <p className="mt-1.5 text-2xs leading-relaxed text-ink-3">
-          {transition.kind === 'none'
-            ? 'The cuts stay as hard joins.'
-            : 'Split across each join — the outgoing side plays out, the incoming side plays in. Both sides come from the same file, so a cross-dissolve would ghost and is not offered here.'}
+          {seam === 'invisible'
+            ? 'The outgoing shot carries on into the footage the cut removed while the next one fades up over it, so the blend happens across material nobody wanted and the removed words are never heard. The viewer should not notice the edit.'
+            : seam === 'audio'
+              ? 'A few frames of fade on each side removes the click. The picture still cuts hard, so a head jump stays visible.'
+              : seam === 'none'
+                ? 'The cuts stay as hard joins.'
+                : 'Split across each join — the outgoing side plays out, the incoming side plays in. This is a visible effect; Invisible is the one the viewer will not notice.'}
         </p>
       </div>
 
