@@ -72,6 +72,7 @@ import { closeGapsCommands, joinCommands, moveInOrder, orderedClips, reorderComm
 import { STEPS, suggestedStep, workflowState, type StepId } from '@/features/edit/workflow';
 import { segmentsToCues, type TranscriptSegment, type TranscriptSource } from '@/features/transcript/model';
 import { mergeRanges, type AudioAnalysis, type Range } from '@/features/analysis/audioAnalysis';
+import { coalesceCuts } from '@/features/edit/coalesce';
 import { api } from '@/lib/api-client';
 import { sequenceDuration, trackByRole } from '@/lib/engine';
 import { Badge, Button, EmptyState, PanelHeader, ProgressBar } from '@/components/ui';
@@ -215,16 +216,23 @@ export function EditFlowPanel() {
     return pauseCuts({ silences: analysis.silences, duration, aggression });
   }, [analysis, duration, aggression]);
 
-  // Merged, so a filler inside a cut line is not counted or cut twice.
-  const plannedCuts: Range[] = useMemo(
+  // Merged, so a filler inside a cut line is not counted or cut twice — then
+  // coalesced, so two cuts that nearly touch do not leave a sliver of footage
+  // between them that reads as a glitch and costs two joins instead of one.
+  const plan = useMemo(
     () =>
-      mergeRanges([
-        ...acceptedFillers.map((f) => ({ start: f.start, end: f.end })),
-        ...acceptedLines.map((c) => ({ start: c.start, end: c.end })),
-        ...pauses,
-      ]),
-    [acceptedFillers, acceptedLines, pauses],
+      coalesceCuts({
+        cuts: mergeRanges([
+          ...acceptedFillers.map((f) => ({ start: f.start, end: f.end })),
+          ...acceptedLines.map((c) => ({ start: c.start, end: c.end })),
+          ...pauses,
+        ]),
+        segments,
+      }),
+    [acceptedFillers, acceptedLines, pauses, segments],
   );
+  const plannedCuts: Range[] = plan.cuts;
+  const swallowed = plan.swallowed;
   const plannedSeconds = plannedCuts.reduce((total, cut) => total + (cut.end - cut.start), 0);
 
   // A plan describes one specific set of cuts. Change which cuts are selected,
@@ -1157,6 +1165,27 @@ export function EditFlowPanel() {
               {clock(plannedSeconds)} ·{' '}
               {clock(Math.max(0, duration - plannedSeconds))} after
             </p>
+            {swallowed.length > 0 ? (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-2xs text-ink-3 hover:text-ink-1">
+                  {swallowed.length} {swallowed.length === 1 ? 'fragment' : 'fragments'} between cuts swallowed too
+                </summary>
+                <ul className="mt-1 space-y-0.5">
+                  {swallowed.map((entry) => (
+                    <li key={`${entry.start}-${entry.end}`} className="text-2xs leading-relaxed text-ink-3">
+                      <button
+                        type="button"
+                        onClick={() => seek(Math.max(0, entry.start - 0.5))}
+                        className="font-mono hover:text-accent"
+                      >
+                        {clock(entry.start)}
+                      </button>{' '}
+                      · {entry.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
             {smoothPlan ? (
               <>
                 <EditPlanReview plan={smoothPlan} onSeek={seek} />
